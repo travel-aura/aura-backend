@@ -1,126 +1,192 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
-import cookieParser from 'cookie-parser'
-import jwt from 'jsonwebtoken'
-import crypto from 'crypto'
+import multer from 'multer'
+import { supabase } from './lib/supabase'
+import { authenticateSupabase } from './middleware/auth'
 
 dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT || 5000
 
+// CORS configuration - Allow all origins in development, specific in production
+const isDevelopment = process.env.NODE_ENV !== 'production'
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: isDevelopment ? true : [
+      'https://aura-frontend-255644230597.us-central1.run.app',
+      process.env.CORS_ORIGIN
+    ],
     credentials: true,
   })
 )
 app.use(express.json())
-app.use(cookieParser())
+
+// Multer setup for file uploads (memory storage)
+const upload = multer({ storage: multer.memoryStorage() })
 
 app.get('/', (req, res) => {
   res.json({ message: 'Aura Backend Running' })
 })
 
-/**
- * EASIEST AUTH: in-memory users (dev only)
- * Replace with DB later.
- */
-type User = {
-  id: string
-  email: string
-  passwordHash: string
-  createdAt: string
-}
+// ========== AUTH ROUTES ==========
 
-const usersByEmail = new Map<string, User>()
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me'
-const COOKIE_NAME = 'aura_token'
-
-function hashPassword(password: string) {
-  // Simple hash for MVP; replace with bcrypt in production
-  return crypto.createHash('sha256').update(password).digest('hex')
-}
-
-function signToken(payload: { userId: string; email: string }) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
-}
-
-function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const token = req.cookies?.[COOKIE_NAME]
-  if (!token) return res.status(401).json({ error: 'Not authenticated' })
-
+app.post('/auth/register', async (req, res) => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string }
-    ;(req as any).user = decoded
-    next()
-  } catch {
-    return res.status(401).json({ error: 'Invalid token' })
+    const { email, password } = req.body
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' })
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' })
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    })
+
+    if (error) {
+      return res.status(400).json({ error: error.message })
+    }
+
+    return res.json({
+      ok: true,
+      user: data.user,
+      session: data.session,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
   }
-}
+})
 
-app.post('/auth/register', (req, res) => {
-  const { email, password } = req.body as { email?: string; password?: string }
-  if (!email || !password) return res.status(400).json({ error: 'email and password required' })
-  if (password.length < 6) return res.status(400).json({ error: 'password must be at least 6 chars' })
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body
 
-  const normalizedEmail = email.trim().toLowerCase()
-  if (usersByEmail.has(normalizedEmail)) return res.status(409).json({ error: 'email already exists' })
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' })
+    }
 
-  const user: User = {
-    id: crypto.randomUUID(),
-    email: normalizedEmail,
-    passwordHash: hashPassword(password),
-    createdAt: new Date().toISOString(),
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error) {
+      return res.status(401).json({ error: error.message })
+    }
+
+    return res.json({
+      ok: true,
+      user: data.user,
+      session: data.session,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
   }
-  usersByEmail.set(normalizedEmail, user)
-
-  const token = signToken({ userId: user.id, email: user.email })
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false, // set true behind HTTPS
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  })
-
-  return res.json({ ok: true, user: { id: user.id, email: user.email } })
 })
 
-app.post('/auth/login', (req, res) => {
-  const { email, password } = req.body as { email?: string; password?: string }
-  if (!email || !password) return res.status(400).json({ error: 'email and password required' })
+app.post('/auth/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization
+    if (!authHeader) {
+      return res.status(401).json({ error: 'No token provided' })
+    }
 
-  const normalizedEmail = email.trim().toLowerCase()
-  const user = usersByEmail.get(normalizedEmail)
-  if (!user) return res.status(401).json({ error: 'invalid credentials' })
+    const token = authHeader.split(' ')[1]
 
-  if (user.passwordHash !== hashPassword(password)) {
-    return res.status(401).json({ error: 'invalid credentials' })
+    const { error } = await supabase.auth.admin.signOut(token)
+
+    if (error) {
+      return res.status(400).json({ error: error.message })
+    }
+
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
   }
-
-  const token = signToken({ userId: user.id, email: user.email })
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  })
-
-  return res.json({ ok: true, user: { id: user.id, email: user.email } })
 })
 
-app.post('/auth/logout', (req, res) => {
-  res.clearCookie(COOKIE_NAME)
-  res.json({ ok: true })
+app.get('/me', authenticateSupabase, (req: any, res) => {
+  return res.json({ ok: true, user: req.user })
 })
 
-app.get('/me', authMiddleware, (req, res) => {
-  const user = (req as any).user as { userId: string; email: string }
-  res.json({ ok: true, user })
+// ========== AURA UPLOAD ROUTE ==========
+app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), async (req: any, res) => {
+  try {
+    const files = req.files as Express.Multer.File[]
+
+    // Safety check: ensure metadata exists
+    if (!req.body.metadata) return res.status(400).json({ error: 'Metadata is missing' });
+    const metadata = JSON.parse(req.body.metadata)
+
+    const userId = req.user.id
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No images provided' })
+    }
+
+    // 1. Upload ALL files
+    const uploadPromises = files.map(async (file) => {
+      const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(7)}.webp`
+
+      const { error: uploadError } = await supabase.storage
+        .from('aura-images')
+        .upload(fileName, file.buffer, { contentType: 'image/webp' })
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('aura-images')
+        .getPublicUrl(fileName)
+
+      return publicUrl
+    })
+
+    const publicUrls = await Promise.all(uploadPromises)
+
+    // 2. Save the ARRAY of URLs to the DB
+    // IMPORTANT: Every key here must match the SQL "p_" names exactly!
+    const payload = {
+      p_user_id: userId,
+      p_title: String(metadata.title || 'Untitled'),
+      p_image_urls: publicUrls,
+      p_archetype_tag: String(metadata.archetype_tag || 'none'),
+      p_heading: Number(metadata.heading) || 0,
+      p_altitude: Number(metadata.alt) || 0,
+      p_lng: Number(metadata.lng) || 0,
+      p_lat: Number(metadata.lat) || 0,
+      p_is_verified: !!metadata.is_verified,
+      p_description: String(metadata.description || '')
+    };
+
+    const { error: dbError } = await supabase.rpc('insert_aura', payload);
+
+    if (dbError) {
+      console.log("CRITICAL DEBUG: RPC Failed");
+      console.log("Payload sent to DB:", JSON.stringify(payload, null, 2));
+      console.log("Full Error Object:", dbError);
+      return res.status(500).json({
+        error: dbError.message,
+        hint: dbError.hint,
+        details: dbError.details
+      });
+    }
+
+    return res.status(200).json({ success: true, urls: publicUrls })
+  } catch (err: any) {
+    console.error('Upload Error Details:', err)
+    return res.status(500).json({ error: err.message })
+  }
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`)
+  console.log(`Local: http://localhost:${PORT}`)
+  console.log(`Network: http://192.168.1.30:${PORT}`)
 })
