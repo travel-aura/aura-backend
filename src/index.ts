@@ -10,25 +10,22 @@ dotenv.config()
 const app = express()
 const PORT = parseInt(process.env.PORT || '8080', 10)
 
-// CORS configuration - Allow all origins in development, specific in production
-const isDevelopment = process.env.NODE_ENV !== 'production'
-
-const developmentOrigins = [
+// CORS configuration - Allow both development and production origins
+const allowedOrigins = [
+  // Production
+  'https://aura-frontend-255644230597.us-central1.run.app',
+  process.env.CORS_ORIGIN,
+  // Development
   'http://192.168.1.30:3002',
   'http://192.168.1.30:3003',
   'http://localhost:3002',
   'http://localhost:3003',
   'http://localhost:3000'
-]
-
-const productionOrigins = [
-  'https://aura-frontend-255644230597.us-central1.run.app',
-  process.env.CORS_ORIGIN
 ].filter((origin): origin is string => Boolean(origin))
 
 app.use(
   cors({
-    origin: isDevelopment ? developmentOrigins : productionOrigins,
+    origin: allowedOrigins,
     credentials: true,
   })
 )
