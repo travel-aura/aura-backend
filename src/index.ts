@@ -18,8 +18,10 @@ const allowedOrigins = [
   // Development
   'http://192.168.1.30:3002',
   'http://192.168.1.30:3003',
+  'http://10.124.57.22:3006',
   'http://localhost:3002',
   'http://localhost:3003',
+  'http://localhost:3006',
   'http://localhost:3000'
 ].filter((origin): origin is string => Boolean(origin))
 
@@ -165,7 +167,7 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_image_urls: publicUrls,
       p_archetype_tag: String(metadata.archetype_tag || 'none'),
       p_heading: Number(metadata.heading) || 0,
-      p_altitude: Number(metadata.alt) || 0,
+      p_altitude: Number(metadata.altitude) || 0,
       p_lng: Number(metadata.lng) || 0,
       p_lat: Number(metadata.lat) || 0,
       p_is_verified: !!metadata.is_verified,
@@ -188,6 +190,114 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     return res.status(200).json({ success: true, urls: publicUrls })
   } catch (err: any) {
     console.error('Upload Error Details:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== GET USER'S AURAS ==========
+app.get('/api/auras/me', authenticateSupabase, async (req: any, res) => {
+  try {
+    const userId = req.user.id
+    console.log('Fetching auras for user:', userId)
+
+    // Use RPC to properly extract lat/lng from PostGIS geography
+    const { data, error } = await supabase.rpc('get_user_auras', {
+      p_user_id: userId
+    })
+
+    if (error) {
+      console.error('Database error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    console.log(`Found ${data?.length || 0} auras for user ${userId}`)
+    return res.json({ ok: true, auras: data || [] })
+  } catch (err: any) {
+    console.error('Fetch auras error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== GET USER'S ARCHETYPE STATS ==========
+app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
+  try {
+    const userId = req.user.id
+    console.log('Fetching archetype stats for user:', userId)
+
+    const { data, error } = await supabase.rpc('get_user_archetype_stats', {
+      p_user_id: userId
+    })
+
+    if (error) {
+      console.error('Stats database error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    // Transform array result into stats object
+    const stats = {
+      angle: 0,
+      path: 0,
+      spot: 0,
+      interior: 0
+    }
+
+    if (data && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        switch (row.archetype_tag) {
+          case 'The Angle':
+            stats.angle = row.count
+            break
+          case 'The Path':
+            stats.path = row.count
+            break
+          case 'The Spot':
+            stats.spot = row.count
+            break
+          case 'The Interior':
+            stats.interior = row.count
+            break
+        }
+      })
+    }
+
+    console.log('Archetype stats:', stats)
+    return res.json({ ok: true, stats })
+  } catch (err: any) {
+    console.error('Fetch stats error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== GET FEED (ALL AURAS WITH PAGINATION) ==========
+app.get('/api/auras/feed', async (req: any, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10
+    const offset = parseInt(req.query.offset as string) || 0
+
+    console.log(`Fetching feed: limit=${limit}, offset=${offset}`)
+
+    const { data, error } = await supabase.rpc('get_all_auras', {
+      p_limit: limit,
+      p_offset: offset
+    })
+
+    if (error) {
+      console.error('Feed database error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    console.log(`Fetched ${data?.length || 0} auras for feed`)
+    return res.json({
+      ok: true,
+      auras: data || [],
+      pagination: {
+        limit,
+        offset,
+        count: data?.length || 0
+      }
+    })
+  } catch (err: any) {
+    console.error('Fetch feed error:', err)
     return res.status(500).json({ error: err.message })
   }
 })

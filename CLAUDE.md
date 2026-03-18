@@ -1,7 +1,7 @@
 # Aura Backend - Development Guide
 
-**Last Updated:** 2026-03-17
-**Version:** 1.0.0
+**Last Updated:** 2026-03-18
+**Version:** 1.1.0
 
 ## Project Overview
 Backend API for Aura platform - a geo-based application for managing location-tagged posts (Auras). Built with Node.js, TypeScript, Express, and Supabase (PostgreSQL + PostGIS).
@@ -94,14 +94,40 @@ SET search_path = public, pg_temp;
 - **Type definitions exported** for frontend consumption
 
 #### 7. **CORS Configuration**
-- Development: Allows all origins (`origin: true`)
-- Production: Restricted to specific frontend URL
+- Allows both development and production origins
+- Development origins: localhost:3000/3002/3003/3006, 192.168.1.30:3002/3003, 10.124.57.22:3006
+- Production: Cloud Run frontend URL
 - Supports credentials for authentication
+- Fixed TypeScript compilation errors with proper type guards
 
 #### 8. **Local Network Testing**
 - Server binds to `0.0.0.0` (all interfaces)
 - Accessible from local network at `http://192.168.1.30:8080`
 - Port changed from 5000 to 8080 (avoiding macOS AirPlay conflict)
+
+#### 9. **Read Endpoints** 🆕
+- **GET /api/auras/me** - Fetch current user's auras (requires auth)
+  - Returns all auras for authenticated user
+  - Sorted by `created_at DESC` (most recent first)
+  - Extracts lat/lng from PostGIS geography
+  - Uses `get_user_auras()` SQL function
+
+- **GET /api/auras/me/stats** - Get user's archetype statistics (requires auth)
+  - Returns count of posts by archetype
+  - Format: `{ angle: 5, path: 3, spot: 12, interior: 2 }`
+  - Uses `get_user_archetype_stats()` SQL function
+
+- **GET /api/auras/feed** - Public feed with pagination (no auth required)
+  - Query params: `limit` (default 10), `offset` (default 0)
+  - Returns newest auras from all users
+  - Supports infinite scroll
+  - Uses `get_all_auras()` SQL function
+
+#### 10. **SQL Functions for Data Retrieval** 🆕
+Created three PostgreSQL functions with `SECURITY DEFINER`:
+- `get_user_auras(p_user_id)` - Returns user's auras with lat/lng extracted
+- `get_user_archetype_stats(p_user_id)` - Returns archetype counts
+- `get_all_auras(p_limit, p_offset)` - Returns paginated feed
 
 ## Environment Variables
 
@@ -134,7 +160,9 @@ Headers: { Authorization: Bearer <token> }
 Response: { ok: true, user: {...} }
 ```
 
-### Aura Upload (Multiple Images) 🆕
+### Aura Endpoints
+
+#### Upload (Multiple Images)
 ```
 POST /api/auras/upload
 Headers: { Authorization: Bearer <token> }
@@ -142,36 +170,88 @@ Body: FormData {
   images: File[],  // Max 5 images
   metadata: JSON string {
     title: string,
-    description?: string,           // 🆕 Optional
+    description?: string,
     archetype_tag: string,
-    heading: number,
-    alt: number,
-    lng: number,
-    lat: number,
+    heading?: number,
+    altitude?: number,              // Changed from 'alt' for consistency
+    lng?: number,
+    lat?: number,
     is_verified: boolean
   }
 }
-Response: { success: true, urls: string[] }  // 🆕 Array of URLs
+Response: { success: true, urls: string[] }
+```
+
+#### Get User's Auras
+```
+GET /api/auras/me
+Headers: { Authorization: Bearer <token> }
+Response: {
+  ok: true,
+  auras: [{
+    id: string,
+    user_id: string,
+    title: string,
+    description: string,
+    image_urls: string[],
+    archetype_tag: string,
+    heading: number,
+    altitude: number,
+    is_verified: boolean,
+    created_at: string,
+    lat: number,
+    lng: number
+  }]
+}
+```
+
+#### Get User's Archetype Stats
+```
+GET /api/auras/me/stats
+Headers: { Authorization: Bearer <token> }
+Response: {
+  ok: true,
+  stats: {
+    angle: number,
+    path: number,
+    spot: number,
+    interior: number
+  }
+}
+```
+
+#### Get Public Feed
+```
+GET /api/auras/feed?limit=10&offset=0
+Response: {
+  ok: true,
+  auras: [...],  // Same structure as /api/auras/me
+  pagination: {
+    limit: number,
+    offset: number,
+    count: number
+  }
+}
 ```
 
 **See `CONTRACT.md` for complete API documentation with examples**
 
 ## Important Implementation Details
 
-### Type Conversion in Upload 🆕
+### Type Conversion in Upload
 All metadata is explicitly typed before database insert to prevent type errors:
 ```typescript
 const payload = {
   p_user_id: userId,                                    // From verified JWT
   p_title: String(metadata.title || 'Untitled'),
-  p_image_urls: publicUrls,                             // 🆕 Array of URLs
+  p_image_urls: publicUrls,                             // Array of URLs
   p_archetype_tag: String(metadata.archetype_tag || 'none'),
   p_heading: Number(metadata.heading) || 0,
-  p_altitude: Number(metadata.alt) || 0,
+  p_altitude: Number(metadata.altitude) || 0,           // Consistent naming with DB
   p_lng: Number(metadata.lng) || 0,                     // Critical for PostGIS
   p_lat: Number(metadata.lat) || 0,                     // Critical for PostGIS
   p_is_verified: !!metadata.is_verified,
-  p_description: String(metadata.description || '')     // 🆕 New field
+  p_description: String(metadata.description || '')
 };
 ```
 
@@ -332,11 +412,9 @@ aura-backend/
 ## TODO / Missing Features
 
 ### High Priority
-- [ ] GET /api/auras - Fetch all auras with pagination
 - [ ] GET /api/auras/:id - Fetch single aura by ID
 - [ ] GET /api/auras/nearby - Spatial query (PostGIS `ST_DWithin`)
 - [ ] GET /api/auras/bbox - Bounding box query for map viewport
-- [ ] User profile endpoints
 - [ ] Saves & verifications functionality
 
 ### Medium Priority
@@ -348,12 +426,18 @@ aura-backend/
 
 ### Low Priority
 - [ ] Re-enable RLS with proper policies for production
-- [ ] Pagination for list endpoints
 - [ ] Unit tests (Jest + Supertest)
 - [ ] API versioning (e.g., /v1/api/auras)
 - [ ] WebSocket support for real-time updates
 
-### ✅ Recently Completed
+### ✅ Recently Completed (2026-03-18)
+- [x] GET /api/auras/feed - Paginated public feed with infinite scroll
+- [x] GET /api/auras/me - Fetch current user's auras
+- [x] GET /api/auras/me/stats - User's archetype statistics
+- [x] TypeScript compilation fixes (CORS and PORT types)
+- [x] Consistent field naming (altitude instead of alt)
+- [x] Complete type definitions in shared schema
+- [x] SQL functions for data retrieval (get_user_auras, get_user_archetype_stats, get_all_auras)
 - [x] Multi-image upload (up to 5 images)
 - [x] Enhanced debugging with payload logging
 - [x] Type safety with shared schema
