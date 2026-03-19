@@ -18,11 +18,14 @@ const allowedOrigins = [
   // Development
   'http://192.168.1.30:3002',
   'http://192.168.1.30:3003',
+  'http://10.124.57.22:3000',
+  'http://10.124.57.22:3001',
   'http://10.124.57.22:3006',
+  'http://localhost:3000',
+  'http://localhost:3001',
   'http://localhost:3002',
   'http://localhost:3003',
-  'http://localhost:3006',
-  'http://localhost:3000'
+  'http://localhost:3006'
 ].filter((origin): origin is string => Boolean(origin))
 
 app.use(
@@ -36,7 +39,7 @@ app.use(express.json())
 // Multer setup for file uploads (memory storage)
 const upload = multer({ storage: multer.memoryStorage() })
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({ message: 'Aura Backend Running' })
 })
 
@@ -121,8 +124,28 @@ app.post('/auth/logout', async (req, res) => {
   }
 })
 
-app.get('/me', authenticateSupabase, (req: any, res) => {
-  return res.json({ ok: true, user: req.user })
+app.get('/me', authenticateSupabase, async (req: any, res) => {
+  try {
+    const userId = req.user.id
+
+    const { data, error } = await supabase.rpc('get_user_profile', {
+      p_user_id: userId
+    })
+
+    if (error) {
+      console.error('Profile fetch error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Profile not found' })
+    }
+
+    return res.json({ ok: true, user: data[0] })
+  } catch (err: any) {
+    console.error('/me error:', err)
+    return res.status(500).json({ error: err.message })
+  }
 })
 
 // ========== AURA UPLOAD ROUTE ==========
@@ -302,8 +325,136 @@ app.get('/api/auras/feed', async (req: any, res) => {
   }
 })
 
+// ========== PROFILE ROUTES ==========
+
+// Get current user's profile
+app.get('/api/profile', authenticateSupabase, async (req: any, res) => {
+  try {
+    const userId = req.user.id
+    console.log('Fetching profile for user:', userId)
+
+    const { data, error } = await supabase.rpc('get_user_profile', {
+      p_user_id: userId
+    })
+
+    if (error) {
+      console.error('Profile fetch error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Profile not found' })
+    }
+
+    return res.json({ ok: true, profile: data[0] })
+  } catch (err: any) {
+    console.error('Profile error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// Update user profile (name and bio)
+app.put('/api/profile/update', authenticateSupabase, async (req: any, res) => {
+  try {
+    const userId = req.user.id
+    const { name, bio } = req.body
+
+    // Validation
+    if (name !== undefined) {
+      if (typeof name !== 'string') {
+        return res.status(400).json({ error: 'Name must be a string' })
+      }
+      if (name.length > 10) {
+        return res.status(400).json({ error: 'Name must be 10 characters or less' })
+      }
+    }
+
+    if (bio !== undefined) {
+      if (typeof bio !== 'string') {
+        return res.status(400).json({ error: 'Bio must be a string' })
+      }
+      if (bio.length > 100) {
+        return res.status(400).json({ error: 'Bio must be 100 characters or less' })
+      }
+    }
+
+    console.log(`Updating profile for user ${userId}:`, { name, bio })
+
+    const { error } = await supabase.rpc('update_user_profile', {
+      p_user_id: userId,
+      p_name: name || null,
+      p_bio: bio || null,
+      p_avatar_url: null
+    })
+
+    if (error) {
+      console.error('Profile update error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    return res.json({ ok: true, message: 'Profile updated successfully' })
+  } catch (err: any) {
+    console.error('Profile update error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// Upload profile avatar
+app.post('/api/profile/avatar', authenticateSupabase, upload.single('avatar'), async (req: any, res) => {
+  try {
+    const userId = req.user.id
+    const file = req.file as Express.Multer.File
+
+    if (!file) {
+      return res.status(400).json({ error: 'No avatar file provided' })
+    }
+
+    console.log('Uploading avatar for user:', userId)
+
+    // Upload to profile-avatars bucket
+    const fileName = `${userId}/avatar-${Date.now()}.webp`
+
+    const { error: uploadError } = await supabase.storage
+      .from('profile-avatars')
+      .upload(fileName, file.buffer, {
+        contentType: 'image/webp',
+        upsert: true // Overwrite existing avatar
+      })
+
+    if (uploadError) {
+      console.error('Avatar upload error:', uploadError)
+      return res.status(500).json({ error: uploadError.message })
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('profile-avatars')
+      .getPublicUrl(fileName)
+
+    console.log('Avatar uploaded:', publicUrl)
+
+    // Update profile with new avatar URL
+    const { error: updateError } = await supabase.rpc('update_user_profile', {
+      p_user_id: userId,
+      p_name: null,
+      p_bio: null,
+      p_avatar_url: publicUrl
+    })
+
+    if (updateError) {
+      console.error('Avatar URL update error:', updateError)
+      return res.status(500).json({ error: updateError.message })
+    }
+
+    return res.json({ ok: true, avatar_url: publicUrl })
+  } catch (err: any) {
+    console.error('Avatar upload error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`)
   console.log(`Local: http://localhost:${PORT}`)
-  console.log(`Network: http://192.168.1.30:${PORT}`)
+  console.log(`Network: http://10.124.57.22:${PORT}`)
 })

@@ -1,7 +1,7 @@
 # Aura Backend - Development Guide
 
-**Last Updated:** 2026-03-18
-**Version:** 1.1.0
+**Last Updated:** 2026-03-19
+**Version:** 1.2.0
 
 ## Project Overview
 Backend API for Aura platform - a geo-based application for managing location-tagged posts (Auras). Built with Node.js, TypeScript, Express, and Supabase (PostgreSQL + PostGIS).
@@ -33,7 +33,7 @@ Backend API for Aura platform - a geo-based application for managing location-ta
 - **Register**: `POST /auth/register` - Create new user with Supabase Auth
 - **Login**: `POST /auth/login` - Returns JWT access token
 - **Logout**: `POST /auth/logout` - Invalidates session
-- **Get User**: `GET /me` - Returns current user (requires auth)
+- **Get User**: `GET /me` - Returns current user profile (requires auth)
 - Auth middleware: `src/middleware/auth.ts` validates JWT tokens
 
 #### 3. **Multi-Image Aura Upload** 🆕
@@ -95,14 +95,14 @@ SET search_path = public, pg_temp;
 
 #### 7. **CORS Configuration**
 - Allows both development and production origins
-- Development origins: localhost:3000/3002/3003/3006, 192.168.1.30:3002/3003, 10.124.57.22:3006
+- Development origins: localhost:3000/3001/3002/3003/3006, 10.124.57.22:3000/3001/3006
 - Production: Cloud Run frontend URL
 - Supports credentials for authentication
 - Fixed TypeScript compilation errors with proper type guards
 
 #### 8. **Local Network Testing**
 - Server binds to `0.0.0.0` (all interfaces)
-- Accessible from local network at `http://192.168.1.30:8080`
+- Accessible from local network at `http://10.124.57.22:8080`
 - Port changed from 5000 to 8080 (avoiding macOS AirPlay conflict)
 
 #### 9. **Read Endpoints** 🆕
@@ -128,6 +128,21 @@ Created three PostgreSQL functions with `SECURITY DEFINER`:
 - `get_user_auras(p_user_id)` - Returns user's auras with lat/lng extracted
 - `get_user_archetype_stats(p_user_id)` - Returns archetype counts
 - `get_all_auras(p_limit, p_offset)` - Returns paginated feed
+
+#### 11. **User Profile System** 🆕
+- **Database**: `profiles` table with name, bio, avatar_url
+- **Auto-creation**: Trigger creates empty profile on user registration
+- **Default name**: Extracts from email prefix if not set (e.g., "user@example.com" → "user")
+- **Endpoints**:
+  - `GET /me` - Get current user's profile
+  - `GET /api/profile` - Same as /me (alternative endpoint)
+  - `PUT /api/profile/update` - Update name/bio (max 10/100 chars)
+  - `POST /api/profile/avatar` - Upload profile picture
+- **Storage bucket**: `profile-avatars` for avatar images
+- **SQL Functions**:
+  - `get_user_profile(p_user_id)` - Returns profile with default name
+  - `update_user_profile(p_user_id, p_name, p_bio, p_avatar_url)` - Updates profile
+  - `create_profile_for_new_user()` - Trigger function for auto-creation
 
 ## Environment Variables
 
@@ -157,7 +172,16 @@ Response: { ok: true }
 
 GET /me
 Headers: { Authorization: Bearer <token> }
-Response: { ok: true, user: {...} }
+Response: {
+  ok: true,
+  user: {
+    user_id: string,
+    email: string,
+    name: string,          // Max 10 chars, defaults to email prefix
+    bio: string | null,    // Max 100 chars
+    avatar_url: string | null
+  }
+}
 ```
 
 ### Aura Endpoints
@@ -234,6 +258,45 @@ Response: {
 }
 ```
 
+### Profile Endpoints
+
+#### Get User Profile
+```
+GET /api/profile
+Headers: { Authorization: Bearer <token> }
+Response: {
+  ok: true,
+  profile: {
+    user_id: string,
+    email: string,
+    name: string,          // Defaults to email prefix if not set
+    bio: string | null,
+    avatar_url: string | null
+  }
+}
+```
+
+#### Update Profile
+```
+PUT /api/profile/update
+Headers: { Authorization: Bearer <token> }
+Body: {
+  name?: string,      // Max 10 characters
+  bio?: string        // Max 100 characters
+}
+Response: { ok: true, message: "Profile updated successfully" }
+```
+
+#### Upload Avatar
+```
+POST /api/profile/avatar
+Headers: { Authorization: Bearer <token> }
+Body: FormData {
+  avatar: File    // Single image file
+}
+Response: { ok: true, avatar_url: string }
+```
+
 **See `CONTRACT.md` for complete API documentation with examples**
 
 ## Important Implementation Details
@@ -291,11 +354,19 @@ CREATE POLICY "Allow authenticated inserts" ON auras
 -- Allow authenticated users to upload to their folder
 ```
 
-### Storage Bucket
+### Storage Buckets
+#### Aura Images
 - **Name**: `aura-images`
 - **Public access**: Enabled
 - **File path pattern**: `{userId}/{timestamp}-{random}.webp`
 - **Max images**: 5 per upload
+- **RLS**: Disabled for development
+
+#### Profile Avatars
+- **Name**: `profile-avatars`
+- **Public access**: Enabled
+- **File path pattern**: `{userId}/avatar-{timestamp}.webp`
+- **Upsert**: Enabled (overwrites existing avatar)
 - **RLS**: Disabled for development
 
 ## Known Issues & Solutions
@@ -430,7 +501,20 @@ aura-backend/
 - [ ] API versioning (e.g., /v1/api/auras)
 - [ ] WebSocket support for real-time updates
 
-### ✅ Recently Completed (2026-03-18)
+### ✅ Recently Completed
+
+#### 2026-03-19
+- [x] User profile system (name, bio, avatar)
+- [x] GET /me - Returns full user profile
+- [x] GET /api/profile - Get user profile
+- [x] PUT /api/profile/update - Update name/bio with validation
+- [x] POST /api/profile/avatar - Upload profile picture
+- [x] profiles table with auto-creation trigger
+- [x] profile-avatars storage bucket
+- [x] Default name from email prefix
+- [x] Updated CORS for 10.124.57.22:3000/3001
+
+#### 2026-03-18
 - [x] GET /api/auras/feed - Paginated public feed with infinite scroll
 - [x] GET /api/auras/me - Fetch current user's auras
 - [x] GET /api/auras/me/stats - User's archetype statistics
@@ -463,7 +547,7 @@ aura-backend/
    - Token expires in 1 hour (configurable in Supabase)
 
 3. **Frontend Integration**:
-   - Local: `http://192.168.1.30:8080`
+   - Local: `http://10.124.57.22:8080`
    - Production: `https://aura-backend-255644230597.us-central1.run.app`
    - Type sharing: Import from `shared/aura-schema.ts`
 
@@ -540,7 +624,7 @@ npm start            # Run production build
 ```
 
 **Important URLs:**
-- Local: http://192.168.1.30:8080
+- Local: http://10.124.57.22:8080
 - Production: https://aura-backend-255644230597.us-central1.run.app
 - Supabase: https://whsfuaidysfcpduohlyw.supabase.co
 

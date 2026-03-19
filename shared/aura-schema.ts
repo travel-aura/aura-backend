@@ -97,3 +97,18 @@ export interface ArchetypeStats {
   spot: number;
   interior: number;
 }
+
+// 8. User profile
+export interface UserProfile {
+  user_id: string;
+  email: string;
+  name: string;             // Max 10 chars, defaults to email prefix
+  bio: string | null;       // Max 100 chars
+  avatar_url: string | null;
+}
+
+// 9. Profile update payload (all fields optional)
+export interface ProfileUpdatePayload {
+  name?: string;            // Max 10 chars
+  bio?: string;             // Max 100 chars
+}
