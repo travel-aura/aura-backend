@@ -19,6 +19,7 @@ export interface Aura {
   created_at: string;     // ISO date (snake_case)
   lat: number;
   lng: number;
+  distance_meters: number | null;  // null on global feed, metres from search point on spatial search
 }
 
 // 2. For profile/feed display
@@ -111,4 +112,20 @@ export interface UserProfile {
 export interface ProfileUpdatePayload {
   name?: string;            // Max 10 chars
   bio?: string;             // Max 100 chars
+}
+
+// 10. Single aura with user info (for GET /api/auras/:id)
+export interface AuraWithUser extends Aura {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatar_url: string | null;
+  };
+}
+
+// 11. Single aura response
+export interface AuraResponse {
+  ok: true;
+  aura: AuraWithUser;
 }

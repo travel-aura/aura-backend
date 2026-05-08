@@ -15,12 +15,19 @@ const allowedOrigins = [
   // Production
   'https://aura-frontend-255644230597.us-central1.run.app',
   process.env.CORS_ORIGIN,
-  // Development
-  'http://192.168.1.30:3002',
-  'http://192.168.1.30:3003',
+  // Development - New IP
+  'http://10.126.30.88:3000',
+  'http://10.126.30.88:3001',
+  'http://10.126.30.88:3002',
+  'http://10.126.30.88:3003',
+  'http://10.126.30.88:3006',
+  // Development - Old IPs (keep for compatibility)
   'http://10.124.57.22:3000',
   'http://10.124.57.22:3001',
   'http://10.124.57.22:3006',
+  'http://192.168.1.30:3002',
+  'http://192.168.1.30:3003',
+  // Localhost
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002',
@@ -291,17 +298,60 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
   }
 })
 
-// ========== GET FEED (ALL AURAS WITH PAGINATION) ==========
+// ========== CHECK NEARBY AURAS (SPATIAL SNAPPING) ==========
+app.get('/api/auras/check-nearby', async (req: any, res) => {
+  try {
+    const lat = parseFloat(req.query.lat as string)
+    const lng = parseFloat(req.query.lng as string)
+    const radius = parseFloat(req.query.radius as string) || 5
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'lat and lng are required' })
+    }
+
+    const { data, error } = await supabase.rpc('check_nearby_auras', {
+      p_lat: lat,
+      p_lng: lng,
+      p_radius_meters: radius
+    })
+
+    if (error) {
+      console.error('Nearby check error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    return res.json({ ok: true, nearby: data || [] })
+  } catch (err: any) {
+    console.error('Nearby check error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== GET FEED (ALL AURAS WITH PAGINATION + SPATIAL + ARCHETYPE FILTER) ==========
+const archetypeMap: Record<string, string> = {
+  'ThePath': 'The Path',
+  'TheAngle': 'The Angle',
+  'TheSpot': 'The Spot',
+  'TheInterior': 'The Interior'
+}
+
 app.get('/api/auras/feed', async (req: any, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 10
     const offset = parseInt(req.query.offset as string) || 0
+    const lat = req.query.lat ? parseFloat(req.query.lat as string) : null
+    const lng = req.query.lng ? parseFloat(req.query.lng as string) : null
+    const radius = parseFloat(req.query.radius as string) || 5000
+    const archetypeRaw = req.query.archetype as string | undefined
+    const archetype = archetypeRaw ? (archetypeMap[archetypeRaw] || archetypeRaw) : null
 
-    console.log(`Fetching feed: limit=${limit}, offset=${offset}`)
-
-    const { data, error } = await supabase.rpc('get_all_auras', {
+    const { data, error } = await supabase.rpc('search_auras', {
       p_limit: limit,
-      p_offset: offset
+      p_offset: offset,
+      p_lat: lat,
+      p_lng: lng,
+      p_radius_meters: radius,
+      p_archetype: archetype
     })
 
     if (error) {
@@ -309,18 +359,68 @@ app.get('/api/auras/feed', async (req: any, res) => {
       return res.status(500).json({ error: error.message })
     }
 
-    console.log(`Fetched ${data?.length || 0} auras for feed`)
     return res.json({
       ok: true,
       auras: data || [],
-      pagination: {
-        limit,
-        offset,
-        count: data?.length || 0
-      }
+      pagination: { limit, offset, count: data?.length || 0 }
     })
   } catch (err: any) {
     console.error('Fetch feed error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== GET SINGLE AURA BY ID ==========
+app.get('/api/auras/:id', async (req: any, res) => {
+  try {
+    const auraId = req.params.id
+
+    console.log(`Fetching aura: ${auraId}`)
+
+    const { data, error } = await supabase.rpc('get_aura_by_id', {
+      p_aura_id: auraId
+    })
+
+    if (error) {
+      console.error('Aura fetch error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Aura not found' })
+    }
+
+    const auraData = data[0]
+
+    // Transform to match expected schema with nested user object
+    const response = {
+      ok: true,
+      aura: {
+        id: auraData.id,
+        user_id: auraData.user_id,
+        title: auraData.title,
+        description: auraData.description,
+        image_urls: auraData.image_urls,
+        archetype_tag: auraData.archetype_tag,
+        heading: auraData.heading,
+        altitude: auraData.altitude,
+        is_verified: auraData.is_verified,
+        created_at: auraData.created_at,
+        lat: auraData.lat,
+        lng: auraData.lng,
+        user: {
+          id: auraData.user_id,
+          name: auraData.user_name,
+          email: auraData.user_email,
+          avatar_url: auraData.user_avatar_url
+        }
+      }
+    }
+
+    console.log(`Found aura ${auraId} by user ${auraData.user_name}`)
+    return res.json(response)
+  } catch (err: any) {
+    console.error('Fetch aura error:', err)
     return res.status(500).json({ error: err.message })
   }
 })
@@ -456,5 +556,5 @@ app.post('/api/profile/avatar', authenticateSupabase, upload.single('avatar'), a
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`)
   console.log(`Local: http://localhost:${PORT}`)
-  console.log(`Network: http://10.124.57.22:${PORT}`)
+  console.log(`Network: http://10.126.30.88:${PORT}`)
 })
