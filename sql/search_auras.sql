@@ -1,29 +1,32 @@
 -- GIST index for fast spatial queries (run once)
 CREATE INDEX IF NOT EXISTS idx_auras_location ON auras USING GIST(location);
 
--- Unified search function: global feed OR spatial + archetype filter
+-- Unified search: global feed OR spatial + archetype filter
+-- Only returns anchors (parent_id IS NULL) with perspective count
 CREATE OR REPLACE FUNCTION search_auras(
-  p_limit int DEFAULT 10,
-  p_offset int DEFAULT 0,
-  p_lat float DEFAULT NULL,
-  p_lng float DEFAULT NULL,
+  p_limit         int DEFAULT 10,
+  p_offset        int DEFAULT 0,
+  p_lat           float DEFAULT NULL,
+  p_lng           float DEFAULT NULL,
   p_radius_meters float DEFAULT 5000,
-  p_archetype text DEFAULT NULL
+  p_archetype     text DEFAULT NULL
 )
 RETURNS TABLE (
-  id uuid,
-  user_id uuid,
-  title text,
-  description text,
-  image_urls text[],
-  archetype_tag text,
-  heading float,
-  altitude float,
-  is_verified boolean,
-  created_at timestamptz,
-  lat float,
-  lng float,
-  distance_meters float
+  id                uuid,
+  user_id           uuid,
+  title             text,
+  description       text,
+  image_urls        text[],
+  archetype_tag     text,
+  heading           float,
+  altitude          float,
+  is_verified       boolean,
+  created_at        timestamptz,
+  lat               float,
+  lng               float,
+  parent_id         uuid,
+  distance_meters   float,
+  perspective_count bigint
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -44,6 +47,7 @@ BEGIN
     a.created_at,
     ST_Y(a.location::geometry)::float AS lat,
     ST_X(a.location::geometry)::float AS lng,
+    a.parent_id,
     CASE
       WHEN p_lat IS NOT NULL AND p_lng IS NOT NULL THEN
         ST_Distance(
@@ -51,11 +55,12 @@ BEGIN
           ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography
         )::float
       ELSE NULL
-    END AS distance_meters
+    END AS distance_meters,
+    (SELECT COUNT(*) FROM auras c WHERE c.parent_id = a.id)::bigint AS perspective_count
   FROM auras a
   WHERE
-    -- spatial filter: only applies when lat/lng provided
-    (
+    a.parent_id IS NULL
+    AND (
       p_lat IS NULL OR p_lng IS NULL OR
       ST_DWithin(
         a.location,
@@ -63,10 +68,8 @@ BEGIN
         p_radius_meters
       )
     )
-    -- archetype filter: only applies when provided
     AND (p_archetype IS NULL OR a.archetype_tag = p_archetype)
   ORDER BY
-    -- nearest first for spatial, newest first for global
     CASE WHEN p_lat IS NOT NULL AND p_lng IS NOT NULL THEN
       ST_Distance(a.location, ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography)
     END ASC NULLS LAST,

@@ -7,19 +7,21 @@ export type Archetype = 'The Angle' | 'The Path' | 'The Spot' | 'The Interior';
 
 // 1. Complete database object
 export interface Aura {
-  id: string;             // uuid
-  user_id: string;        // uuid (snake_case)
+  id: string;
+  user_id: string;
   title: string;
   description: string;
-  image_urls: string[];   // text[] - carousel (snake_case)
-  archetype_tag: string;  // snake_case
+  image_urls: string[];
+  archetype_tag: string;
   heading: number;
   altitude: number;
-  is_verified: boolean;   // snake_case
-  created_at: string;     // ISO date (snake_case)
+  is_verified: boolean;
+  created_at: string;
   lat: number;
   lng: number;
-  distance_meters: number | null;  // null on global feed, metres from search point on spatial search
+  parent_id: string | null;
+  distance_meters: number | null;   // null on global feed, metres from search point on spatial search
+  perspective_count: number;        // count of child perspectives (0 for perspectives themselves)
 }
 
 // 2. For profile/feed display
@@ -114,8 +116,20 @@ export interface ProfileUpdatePayload {
   bio?: string;             // Max 100 chars
 }
 
-// 10. Single aura with user info (for GET /api/auras/:id)
+// 10. A perspective shown inside the detail view
+export interface Perspective {
+  id: string;
+  image_urls: string[];
+  archetype_tag: string;
+  created_at: string;
+  user_name: string;
+  user_avatar_url: string | null;
+}
+
+// 11. Single aura with user info (for GET /api/auras/:id)
 export interface AuraWithUser extends Aura {
+  is_saved: boolean;
+  perspectives: Perspective[];
   user: {
     id: string;
     name: string;
@@ -124,8 +138,14 @@ export interface AuraWithUser extends Aura {
   };
 }
 
-// 11. Single aura response
+// 12. Single aura response
 export interface AuraResponse {
   ok: true;
   aura: AuraWithUser;
+}
+
+// 13. Saved auras response
+export interface SavedAurasResponse {
+  ok: true;
+  auras: (Aura & { saved_at: string })[];
 }

@@ -1,13 +1,14 @@
+-- Only returns anchors (parent_id IS NULL) so perspectives don't trigger duplicate prompts
 CREATE OR REPLACE FUNCTION check_nearby_auras(
-  p_lat float,
-  p_lng float,
+  p_lat           float,
+  p_lng           float,
   p_radius_meters float DEFAULT 5
 )
 RETURNS TABLE (
-  id uuid,
-  title text,
-  archetype_tag text,
-  image_urls text[],
+  id              uuid,
+  title           text,
+  archetype_tag   text,
+  image_urls      text[],
   distance_meters float
 )
 LANGUAGE plpgsql
@@ -26,11 +27,13 @@ BEGIN
       ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography
     )::float AS distance_meters
   FROM auras a
-  WHERE ST_DWithin(
-    a.location,
-    ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
-    p_radius_meters
-  )
+  WHERE
+    a.parent_id IS NULL
+    AND ST_DWithin(
+      a.location,
+      ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
+      p_radius_meters
+    )
   ORDER BY distance_meters ASC
   LIMIT 5;
 END;

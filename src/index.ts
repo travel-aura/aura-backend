@@ -201,7 +201,8 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_lng: Number(metadata.lng) || 0,
       p_lat: Number(metadata.lat) || 0,
       p_is_verified: !!metadata.is_verified,
-      p_description: String(metadata.description || '')
+      p_description: String(metadata.description || ''),
+      p_parent_id: metadata.parent_id || null
     };
 
     const { error: dbError } = await supabase.rpc('insert_aura', payload);
@@ -370,15 +371,62 @@ app.get('/api/auras/feed', async (req: any, res) => {
   }
 })
 
+// ========== SAVES ==========
+app.get('/api/auras/saved', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { data, error } = await supabase.rpc('get_saved_auras', {
+      p_user_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true, auras: data || [] })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/auras/:id/save', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('save_aura', {
+      p_user_id: req.user.id,
+      p_aura_id: req.params.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/auras/:id/save', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('unsave_aura', {
+      p_user_id: req.user.id,
+      p_aura_id: req.params.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 // ========== GET SINGLE AURA BY ID ==========
 app.get('/api/auras/:id', async (req: any, res) => {
   try {
     const auraId = req.params.id
 
-    console.log(`Fetching aura: ${auraId}`)
+    // Optionally resolve viewer for is_saved field
+    let viewerId = null
+    const authHeader = req.headers.authorization
+    if (authHeader) {
+      const token = authHeader.split(' ')[1]
+      const { data: { user } } = await supabase.auth.getUser(token)
+      if (user) viewerId = user.id
+    }
 
     const { data, error } = await supabase.rpc('get_aura_by_id', {
-      p_aura_id: auraId
+      p_aura_id: auraId,
+      p_viewer_id: viewerId
     })
 
     if (error) {
@@ -390,35 +438,34 @@ app.get('/api/auras/:id', async (req: any, res) => {
       return res.status(404).json({ error: 'Aura not found' })
     }
 
-    const auraData = data[0]
-
-    // Transform to match expected schema with nested user object
-    const response = {
+    const d = data[0]
+    return res.json({
       ok: true,
       aura: {
-        id: auraData.id,
-        user_id: auraData.user_id,
-        title: auraData.title,
-        description: auraData.description,
-        image_urls: auraData.image_urls,
-        archetype_tag: auraData.archetype_tag,
-        heading: auraData.heading,
-        altitude: auraData.altitude,
-        is_verified: auraData.is_verified,
-        created_at: auraData.created_at,
-        lat: auraData.lat,
-        lng: auraData.lng,
+        id: d.id,
+        user_id: d.user_id,
+        title: d.title,
+        description: d.description,
+        image_urls: d.image_urls,
+        archetype_tag: d.archetype_tag,
+        heading: d.heading,
+        altitude: d.altitude,
+        is_verified: d.is_verified,
+        created_at: d.created_at,
+        lat: d.lat,
+        lng: d.lng,
+        parent_id: d.parent_id,
+        perspective_count: d.perspective_count,
+        perspectives: d.perspectives,
+        is_saved: d.is_saved,
         user: {
-          id: auraData.user_id,
-          name: auraData.user_name,
-          email: auraData.user_email,
-          avatar_url: auraData.user_avatar_url
+          id: d.user_id,
+          name: d.user_name,
+          email: d.user_email,
+          avatar_url: d.user_avatar_url
         }
       }
-    }
-
-    console.log(`Found aura ${auraId} by user ${auraData.user_name}`)
-    return res.json(response)
+    })
   } catch (err: any) {
     console.error('Fetch aura error:', err)
     return res.status(500).json({ error: err.message })
