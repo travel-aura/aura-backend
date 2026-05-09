@@ -371,12 +371,10 @@ app.get('/api/auras/feed', async (req: any, res) => {
   }
 })
 
-// ========== SAVES ==========
-app.get('/api/auras/saved', authenticateSupabase, async (req: any, res) => {
+// ========== SAVES (frontend URL pattern: /api/saves) ==========
+app.get('/api/saves', authenticateSupabase, async (req: any, res) => {
   try {
-    const { data, error } = await supabase.rpc('get_saved_auras', {
-      p_user_id: req.user.id
-    })
+    const { data, error } = await supabase.rpc('get_saved_auras', { p_user_id: req.user.id })
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ ok: true, auras: data || [] })
   } catch (err: any) {
@@ -384,11 +382,40 @@ app.get('/api/auras/saved', authenticateSupabase, async (req: any, res) => {
   }
 })
 
-app.post('/api/auras/:id/save', authenticateSupabase, async (req: any, res) => {
+app.get('/api/saves/check', authenticateSupabase, async (req: any, res) => {
   try {
-    const { error } = await supabase.rpc('save_aura', {
+    const auraId = req.query.aura_id as string
+    if (!auraId) return res.status(400).json({ error: 'aura_id required' })
+    const { data, error } = await supabase
+      .from('saves')
+      .select('aura_id')
+      .eq('user_id', req.user.id)
+      .eq('aura_id', auraId)
+      .maybeSingle()
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ saved: !!data })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/saves', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { aura_id } = req.body
+    if (!aura_id) return res.status(400).json({ error: 'aura_id required' })
+    const { error } = await supabase.rpc('save_aura', { p_user_id: req.user.id, p_aura_id: aura_id })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/saves/:aura_id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('unsave_aura', {
       p_user_id: req.user.id,
-      p_aura_id: req.params.id
+      p_aura_id: req.params.aura_id
     })
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ ok: true })
@@ -397,14 +424,14 @@ app.post('/api/auras/:id/save', authenticateSupabase, async (req: any, res) => {
   }
 })
 
-app.delete('/api/auras/:id/save', authenticateSupabase, async (req: any, res) => {
+// ========== PERSPECTIVES ==========
+app.get('/api/auras/:id/perspectives', async (req: any, res) => {
   try {
-    const { error } = await supabase.rpc('unsave_aura', {
-      p_user_id: req.user.id,
-      p_aura_id: req.params.id
+    const { data, error } = await supabase.rpc('get_aura_perspectives', {
+      p_parent_id: req.params.id
     })
     if (error) return res.status(500).json({ error: error.message })
-    return res.json({ ok: true })
+    return res.json({ ok: true, perspectives: data || [] })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })
   }

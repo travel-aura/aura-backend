@@ -1,4 +1,5 @@
 -- Updated insert_aura with parent_id support
+DROP FUNCTION IF EXISTS insert_aura(uuid, text, text[], text, double precision, double precision, double precision, double precision, boolean, text);
 CREATE OR REPLACE FUNCTION insert_aura(
   p_user_id      uuid,
   p_title        text,

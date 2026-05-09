@@ -1,4 +1,6 @@
 -- Single aura detail: includes perspectives + is_saved
+DROP FUNCTION IF EXISTS get_aura_by_id(uuid);
+DROP FUNCTION IF EXISTS get_aura_by_id(uuid, uuid);
 CREATE OR REPLACE FUNCTION get_aura_by_id(
   p_aura_id   uuid,
   p_viewer_id uuid DEFAULT NULL

@@ -1,6 +1,8 @@
 -- GIST index for fast spatial queries (run once)
 CREATE INDEX IF NOT EXISTS idx_auras_location ON auras USING GIST(location);
 
+DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text);
+
 -- Unified search: global feed OR spatial + archetype filter
 -- Only returns anchors (parent_id IS NULL) with perspective count
 CREATE OR REPLACE FUNCTION search_auras(
