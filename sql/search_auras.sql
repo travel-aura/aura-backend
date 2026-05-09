@@ -2,8 +2,9 @@
 CREATE INDEX IF NOT EXISTS idx_auras_location ON auras USING GIST(location);
 
 DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text);
+DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text, uuid);
 
--- Unified search: global feed OR spatial + archetype filter
+-- Unified search: global, spatial, archetype, and following feed
 -- Only returns anchors (parent_id IS NULL) with perspective count
 CREATE OR REPLACE FUNCTION search_auras(
   p_limit         int DEFAULT 10,
@@ -11,7 +12,8 @@ CREATE OR REPLACE FUNCTION search_auras(
   p_lat           float DEFAULT NULL,
   p_lng           float DEFAULT NULL,
   p_radius_meters float DEFAULT 5000,
-  p_archetype     text DEFAULT NULL
+  p_archetype     text DEFAULT NULL,
+  p_follower_id   uuid DEFAULT NULL
 )
 RETURNS TABLE (
   id                uuid,
@@ -71,6 +73,12 @@ BEGIN
       )
     )
     AND (p_archetype IS NULL OR a.archetype_tag = p_archetype)
+    AND (
+      p_follower_id IS NULL OR
+      a.user_id IN (
+        SELECT following_id FROM follows WHERE follower_id = p_follower_id
+      )
+    )
   ORDER BY
     CASE WHEN p_lat IS NOT NULL AND p_lng IS NOT NULL THEN
       ST_Distance(a.location, ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography)

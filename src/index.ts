@@ -345,6 +345,18 @@ app.get('/api/auras/feed', async (req: any, res) => {
     const radius = parseFloat(req.query.radius as string) || 5000
     const archetypeRaw = req.query.archetype as string | undefined
     const archetype = archetypeRaw ? (archetypeMap[archetypeRaw] || archetypeRaw) : null
+    const following = req.query.following === 'true'
+
+    // Resolve current user for following filter
+    let followerId = null
+    if (following) {
+      const authHeader = req.headers.authorization
+      if (authHeader) {
+        const token = authHeader.split(' ')[1]
+        const { data: { user } } = await supabase.auth.getUser(token)
+        if (user) followerId = user.id
+      }
+    }
 
     const { data, error } = await supabase.rpc('search_auras', {
       p_limit: limit,
@@ -352,7 +364,8 @@ app.get('/api/auras/feed', async (req: any, res) => {
       p_lat: lat,
       p_lng: lng,
       p_radius_meters: radius,
-      p_archetype: archetype
+      p_archetype: archetype,
+      p_follower_id: followerId
     })
 
     if (error) {
@@ -367,6 +380,50 @@ app.get('/api/auras/feed', async (req: any, res) => {
     })
   } catch (err: any) {
     console.error('Fetch feed error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== FOLLOWS ==========
+app.get('/api/users/search', authenticateSupabase, async (req: any, res) => {
+  try {
+    const q = req.query.q as string
+    if (!q || q.trim().length === 0) return res.status(400).json({ error: 'q is required' })
+    const { data, error } = await supabase.rpc('search_users', {
+      p_query: q.trim(),
+      p_current_user_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ users: data || [] })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/follows', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { user_id } = req.body
+    if (!user_id) return res.status(400).json({ error: 'user_id required' })
+    const { error } = await supabase.rpc('follow_user', {
+      p_follower_id: req.user.id,
+      p_following_id: user_id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/follows/:user_id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('unfollow_user', {
+      p_follower_id: req.user.id,
+      p_following_id: req.params.user_id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
     return res.status(500).json({ error: err.message })
   }
 })
