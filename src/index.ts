@@ -409,6 +409,12 @@ app.post('/api/follows', authenticateSupabase, async (req: any, res) => {
       p_following_id: user_id
     })
     if (error) return res.status(500).json({ error: error.message })
+    // Create follow notification for the person being followed
+    await supabase.rpc('create_notification', {
+      p_recipient_id: user_id,
+      p_actor_id: req.user.id,
+      p_type: 'follow'
+    })
     return res.json({ ok: true })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })
@@ -423,6 +429,72 @@ app.delete('/api/follows/:user_id', authenticateSupabase, async (req: any, res) 
     })
     if (error) return res.status(500).json({ error: error.message })
     return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== NOTIFICATIONS ==========
+app.get('/api/notifications', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { data, error } = await supabase.rpc('get_notifications', {
+      p_user_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true, notifications: data || [] })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.patch('/api/notifications/read', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('mark_notifications_read', {
+      p_user_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== PUBLIC USER PROFILE ==========
+app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const profileUserId = req.params.id
+    const viewerId = req.user.id
+
+    const [profileResult, postsResult, statsResult] = await Promise.all([
+      supabase.rpc('get_user_public_profile', {
+        p_profile_user_id: profileUserId,
+        p_viewer_id: viewerId
+      }),
+      supabase.rpc('get_user_public_posts', { p_user_id: profileUserId }),
+      supabase.rpc('get_user_archetype_stats', { p_user_id: profileUserId })
+    ])
+
+    if (profileResult.error) return res.status(500).json({ error: profileResult.error.message })
+    if (!profileResult.data || profileResult.data.length === 0) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    const stats = { angle: 0, path: 0, spot: 0, interior: 0 }
+    if (statsResult.data) {
+      statsResult.data.forEach((row: any) => {
+        if (row.archetype_tag === 'The Angle') stats.angle = row.count
+        if (row.archetype_tag === 'The Path') stats.path = row.count
+        if (row.archetype_tag === 'The Spot') stats.spot = row.count
+        if (row.archetype_tag === 'The Interior') stats.interior = row.count
+      })
+    }
+
+    return res.json({
+      ok: true,
+      profile: profileResult.data[0],
+      posts: postsResult.data || [],
+      stats
+    })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })
   }

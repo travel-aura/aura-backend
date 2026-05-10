@@ -149,3 +149,39 @@ export interface SavedAurasResponse {
   ok: true;
   auras: (Aura & { saved_at: string })[];
 }
+
+// 14. Notification
+export interface Notification {
+  id: string;
+  type: 'follow';
+  read: boolean;
+  created_at: string;
+  actor_id: string;
+  actor_name: string;
+  actor_avatar: string | null;
+  is_following: boolean;  // does the recipient already follow back?
+}
+
+// 15. Public user profile (shown to others — no saved posts)
+export interface PublicProfile {
+  user_id: string;
+  name: string;
+  bio: string | null;
+  avatar_url: string | null;
+  follower_count: number;
+  following_count: number;
+  is_following: boolean;
+  post_count: number;
+}
+
+export interface PublicProfileResponse {
+  ok: true;
+  profile: PublicProfile;
+  posts: Aura[];
+  stats: {
+    angle: number;
+    path: number;
+    spot: number;
+    interior: number;
+  };
+}
