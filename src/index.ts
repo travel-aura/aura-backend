@@ -347,16 +347,15 @@ app.get('/api/auras/feed', async (req: any, res) => {
     const archetype = archetypeRaw ? (archetypeMap[archetypeRaw] || archetypeRaw) : null
     const following = req.query.following === 'true'
 
-    // Resolve current user for following filter
-    let followerId = null
-    if (following) {
-      const authHeader = req.headers.authorization
-      if (authHeader) {
-        const token = authHeader.split(' ')[1]
-        const { data: { user } } = await supabase.auth.getUser(token)
-        if (user) followerId = user.id
-      }
+    // Resolve current user for following filter and is_liked
+    let viewerId = null
+    const authHeader = req.headers.authorization
+    if (authHeader) {
+      const token = authHeader.split(' ')[1]
+      const { data: { user } } = await supabase.auth.getUser(token)
+      if (user) viewerId = user.id
     }
+    const followerId = following ? viewerId : null
 
     const { data, error } = await supabase.rpc('search_auras', {
       p_limit: limit,
@@ -365,7 +364,8 @@ app.get('/api/auras/feed', async (req: any, res) => {
       p_lng: lng,
       p_radius_meters: radius,
       p_archetype: archetype,
-      p_follower_id: followerId
+      p_follower_id: followerId,
+      p_viewer_id: viewerId
     })
 
     if (error) {
@@ -470,7 +470,7 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
         p_profile_user_id: profileUserId,
         p_viewer_id: viewerId
       }),
-      supabase.rpc('get_user_public_posts', { p_user_id: profileUserId }),
+      supabase.rpc('get_user_public_posts', { p_user_id: profileUserId, p_viewer_id: viewerId }),
       supabase.rpc('get_user_archetype_stats', { p_user_id: profileUserId })
     ])
 
@@ -553,6 +553,49 @@ app.delete('/api/saves/:aura_id', authenticateSupabase, async (req: any, res) =>
   }
 })
 
+// ========== LIKES ==========
+app.post('/api/likes', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { aura_id } = req.body
+    if (!aura_id) return res.status(400).json({ error: 'aura_id required' })
+
+    const { error } = await supabase.rpc('like_aura', { p_user_id: req.user.id, p_aura_id: aura_id })
+    if (error) return res.status(500).json({ error: error.message })
+
+    // Send notification to post owner (skip if liking own post)
+    const { data: aura } = await supabase
+      .from('auras')
+      .select('user_id')
+      .eq('id', aura_id)
+      .single()
+
+    if (aura && aura.user_id !== req.user.id) {
+      await supabase.rpc('create_notification', {
+        p_recipient_id: aura.user_id,
+        p_actor_id: req.user.id,
+        p_type: 'like'
+      })
+    }
+
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/likes/:aura_id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('unlike_aura', {
+      p_user_id: req.user.id,
+      p_aura_id: req.params.aura_id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 // ========== PERSPECTIVES ==========
 app.get('/api/auras/:id/perspectives', async (req: any, res) => {
   try {
@@ -614,6 +657,8 @@ app.get('/api/auras/:id', async (req: any, res) => {
         perspective_count: d.perspective_count,
         perspectives: d.perspectives,
         is_saved: d.is_saved,
+        like_count: d.like_count,
+        is_liked: d.is_liked,
         user: {
           id: d.user_id,
           name: d.user_name,

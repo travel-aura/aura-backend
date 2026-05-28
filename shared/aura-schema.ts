@@ -22,6 +22,8 @@ export interface Aura {
   parent_id: string | null;
   distance_meters: number | null;   // null on global feed, metres from search point on spatial search
   perspective_count: number;        // count of child perspectives (0 for perspectives themselves)
+  like_count: number;
+  is_liked: boolean;
 }
 
 // 2. For profile/feed display
@@ -153,7 +155,7 @@ export interface SavedAurasResponse {
 // 14. Notification
 export interface Notification {
   id: string;
-  type: 'follow';
+  type: 'follow' | 'like';
   read: boolean;
   created_at: string;
   actor_id: string;

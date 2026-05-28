@@ -24,7 +24,9 @@ RETURNS TABLE (
   user_avatar_url   text,
   perspective_count bigint,
   perspectives      json,
-  is_saved          boolean
+  is_saved          boolean,
+  like_count        bigint,
+  is_liked          boolean
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -71,7 +73,13 @@ BEGIN
       WHEN p_viewer_id IS NOT NULL THEN
         EXISTS(SELECT 1 FROM saves s WHERE s.user_id = p_viewer_id AND s.aura_id = a.id)
       ELSE false
-    END AS is_saved
+    END AS is_saved,
+    (SELECT COUNT(*) FROM likes l WHERE l.aura_id = a.id)::bigint AS like_count,
+    CASE
+      WHEN p_viewer_id IS NOT NULL THEN
+        EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_viewer_id AND l.aura_id = a.id)
+      ELSE false
+    END AS is_liked
   FROM auras a
   LEFT JOIN auth.users au ON a.user_id = au.id
   LEFT JOIN profiles p ON a.user_id = p.user_id

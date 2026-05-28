@@ -39,7 +39,7 @@ END;
 $$;
 
 -- Get public posts for a user (anchors only, same shape as feed)
-CREATE OR REPLACE FUNCTION get_user_public_posts(p_user_id uuid)
+CREATE OR REPLACE FUNCTION get_user_public_posts(p_user_id uuid, p_viewer_id uuid DEFAULT NULL)
 RETURNS TABLE (
   id                uuid,
   user_id           uuid,
@@ -54,7 +54,9 @@ RETURNS TABLE (
   lat               float,
   lng               float,
   parent_id         uuid,
-  perspective_count bigint
+  perspective_count bigint,
+  like_count        bigint,
+  is_liked          boolean
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -76,7 +78,13 @@ BEGIN
     ST_Y(a.location::geometry)::float AS lat,
     ST_X(a.location::geometry)::float AS lng,
     a.parent_id,
-    (SELECT COUNT(*) FROM auras c WHERE c.parent_id = a.id)::bigint AS perspective_count
+    (SELECT COUNT(*) FROM auras c WHERE c.parent_id = a.id)::bigint AS perspective_count,
+    (SELECT COUNT(*) FROM likes l WHERE l.aura_id = a.id)::bigint AS like_count,
+    CASE
+      WHEN p_viewer_id IS NOT NULL THEN
+        EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_viewer_id AND l.aura_id = a.id)
+      ELSE false
+    END AS is_liked
   FROM auras a
   WHERE a.user_id = p_user_id AND a.parent_id IS NULL
   ORDER BY a.created_at DESC;
