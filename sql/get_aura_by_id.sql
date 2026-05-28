@@ -26,7 +26,8 @@ RETURNS TABLE (
   perspectives      json,
   is_saved          boolean,
   like_count        bigint,
-  is_liked          boolean
+  is_liked          boolean,
+  tags              text[]
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -79,7 +80,8 @@ BEGIN
       WHEN p_viewer_id IS NOT NULL THEN
         EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_viewer_id AND l.aura_id = a.id)
       ELSE false
-    END AS is_liked
+    END AS is_liked,
+    COALESCE(a.tags, ARRAY[]::text[]) AS tags
   FROM auras a
   LEFT JOIN auth.users au ON a.user_id = au.id
   LEFT JOIN profiles p ON a.user_id = p.user_id

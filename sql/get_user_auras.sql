@@ -17,7 +17,8 @@ RETURNS TABLE (
   parent_id         uuid,
   perspective_count bigint,
   like_count        bigint,
-  is_liked          boolean
+  is_liked          boolean,
+  tags              text[]
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -41,7 +42,8 @@ BEGIN
     a.parent_id,
     (SELECT COUNT(*) FROM auras c WHERE c.parent_id = a.id)::bigint AS perspective_count,
     (SELECT COUNT(*) FROM likes l WHERE l.aura_id = a.id)::bigint AS like_count,
-    EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_user_id AND l.aura_id = a.id) AS is_liked
+    EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_user_id AND l.aura_id = a.id) AS is_liked,
+    COALESCE(a.tags, ARRAY[]::text[]) AS tags
   FROM auras a
   WHERE a.user_id = p_user_id AND a.parent_id IS NULL
   ORDER BY a.created_at DESC;

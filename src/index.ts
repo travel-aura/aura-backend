@@ -202,7 +202,8 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_lat: Number(metadata.lat) || 0,
       p_is_verified: !!metadata.is_verified,
       p_description: String(metadata.description || ''),
-      p_parent_id: metadata.parent_id || null
+      p_parent_id: metadata.parent_id || null,
+      p_tags: Array.isArray(metadata.tags) ? metadata.tags : null
     };
 
     const { error: dbError } = await supabase.rpc('insert_aura', payload);
@@ -659,6 +660,7 @@ app.get('/api/auras/:id', async (req: any, res) => {
         is_saved: d.is_saved,
         like_count: d.like_count,
         is_liked: d.is_liked,
+        tags: d.tags ?? [],
         user: {
           id: d.user_id,
           name: d.user_name,

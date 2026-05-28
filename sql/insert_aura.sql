@@ -11,7 +11,8 @@ CREATE OR REPLACE FUNCTION insert_aura(
   p_lat          float,
   p_is_verified  boolean,
   p_description  text DEFAULT '',
-  p_parent_id    uuid DEFAULT NULL
+  p_parent_id    uuid DEFAULT NULL,
+  p_tags         text[] DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -21,7 +22,7 @@ AS $$
 BEGIN
   INSERT INTO auras (
     user_id, title, image_urls, archetype_tag,
-    heading, altitude, location, is_verified, description, parent_id
+    heading, altitude, location, is_verified, description, parent_id, tags
   ) VALUES (
     p_user_id,
     p_title,
@@ -32,7 +33,8 @@ BEGIN
     ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
     p_is_verified,
     p_description,
-    p_parent_id
+    p_parent_id,
+    p_tags
   );
 END;
 $$;

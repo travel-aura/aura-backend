@@ -43,6 +43,7 @@ RETURNS TABLE (
   perspective_count bigint,
   like_count        bigint,
   is_liked          boolean,
+  tags              text[],
   saved_at          timestamptz
 )
 LANGUAGE plpgsql
@@ -69,6 +70,7 @@ BEGIN
     (SELECT COUNT(*) FROM auras c WHERE c.parent_id = a.id)::bigint AS perspective_count,
     (SELECT COUNT(*) FROM likes l WHERE l.aura_id = a.id)::bigint AS like_count,
     EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_user_id AND l.aura_id = a.id) AS is_liked,
+    COALESCE(a.tags, ARRAY[]::text[]) AS tags,
     s.created_at AS saved_at
   FROM saves s
   JOIN auras a ON s.aura_id = a.id

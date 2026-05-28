@@ -24,6 +24,7 @@ export interface Aura {
   perspective_count: number;        // count of child perspectives (0 for perspectives themselves)
   like_count: number;
   is_liked: boolean;
+  tags: string[];
 }
 
 // 2. For profile/feed display
