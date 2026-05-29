@@ -3,7 +3,7 @@
  * Updated: 2026-03-18
  */
 
-export type Archetype = 'The Angle' | 'The Path' | 'The Spot' | 'The Interior';
+export type Archetype = 'Photo Spots' | 'Wanderings' | 'Indoor Vibes';
 
 // 1. Complete database object
 export interface Aura {
@@ -98,10 +98,9 @@ export interface FeedResponse {
 
 // 7. Archetype stats response
 export interface ArchetypeStats {
-  angle: number;
-  path: number;
-  spot: number;
-  interior: number;
+  photo_spots: number;
+  wanderings: number;
+  indoor_vibes: number;
 }
 
 // 8. User profile

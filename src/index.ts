@@ -267,27 +267,17 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
 
     // Transform array result into stats object
     const stats = {
-      angle: 0,
-      path: 0,
-      spot: 0,
-      interior: 0
+      photo_spots: 0,
+      wanderings: 0,
+      indoor_vibes: 0
     }
 
     if (data && Array.isArray(data)) {
       data.forEach((row: any) => {
         switch (row.archetype_tag) {
-          case 'The Angle':
-            stats.angle = row.count
-            break
-          case 'The Path':
-            stats.path = row.count
-            break
-          case 'The Spot':
-            stats.spot = row.count
-            break
-          case 'The Interior':
-            stats.interior = row.count
-            break
+          case 'Photo Spots':  stats.photo_spots = row.count; break
+          case 'Wanderings':   stats.wanderings  = row.count; break
+          case 'Indoor Vibes': stats.indoor_vibes = row.count; break
         }
       })
     }
@@ -331,10 +321,9 @@ app.get('/api/auras/check-nearby', async (req: any, res) => {
 
 // ========== GET FEED (ALL AURAS WITH PAGINATION + SPATIAL + ARCHETYPE FILTER) ==========
 const archetypeMap: Record<string, string> = {
-  'ThePath': 'The Path',
-  'TheAngle': 'The Angle',
-  'TheSpot': 'The Spot',
-  'TheInterior': 'The Interior'
+  'PhotoSpots': 'Photo Spots',
+  'Wanderings': 'Wanderings',
+  'IndoorVibes': 'Indoor Vibes'
 }
 
 app.get('/api/auras/feed', async (req: any, res) => {
@@ -482,13 +471,12 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    const stats = { angle: 0, path: 0, spot: 0, interior: 0 }
+    const stats = { photo_spots: 0, wanderings: 0, indoor_vibes: 0 }
     if (statsResult.data) {
       statsResult.data.forEach((row: any) => {
-        if (row.archetype_tag === 'The Angle') stats.angle = row.count
-        if (row.archetype_tag === 'The Path') stats.path = row.count
-        if (row.archetype_tag === 'The Spot') stats.spot = row.count
-        if (row.archetype_tag === 'The Interior') stats.interior = row.count
+        if (row.archetype_tag === 'Photo Spots')  stats.photo_spots  = row.count
+        if (row.archetype_tag === 'Wanderings')   stats.wanderings   = row.count
+        if (row.archetype_tag === 'Indoor Vibes') stats.indoor_vibes = row.count
       })
     }
 
