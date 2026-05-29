@@ -347,6 +347,7 @@ app.get('/api/auras/feed', async (req: any, res) => {
     const archetypeRaw = req.query.archetype as string | undefined
     const archetype = archetypeRaw ? (archetypeMap[archetypeRaw] || archetypeRaw) : null
     const following = req.query.following === 'true'
+    const tag = (req.query.tag as string) || null
 
     // Resolve current user for following filter and is_liked
     let viewerId = null
@@ -366,7 +367,8 @@ app.get('/api/auras/feed', async (req: any, res) => {
       p_radius_meters: radius,
       p_archetype: archetype,
       p_follower_id: followerId,
-      p_viewer_id: viewerId
+      p_viewer_id: viewerId,
+      p_tag: tag
     })
 
     if (error) {
