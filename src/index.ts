@@ -199,6 +199,7 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${metadata.lng},${metadata.lat}.json?access_token=${mapboxToken}`
         )
         const geocodeData = await geocodeRes.json() as any
+        console.log('Mapbox raw:', JSON.stringify(geocodeData).slice(0, 500))
         const feature = geocodeData.features?.[0]
         console.log('Mapbox feature:', JSON.stringify(feature?.place_type), 'context:', JSON.stringify(feature?.context?.map((c: any) => c.id)))
         const placeCtx = feature?.context?.find((c: any) =>
