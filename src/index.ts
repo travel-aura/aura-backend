@@ -196,10 +196,12 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     if (metadata.lat && metadata.lng && mapboxToken) {
       try {
         const geocodeRes = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${metadata.lng},${metadata.lat}.json?types=place&access_token=${mapboxToken}`
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${metadata.lng},${metadata.lat}.json?access_token=${mapboxToken}`
         )
         const geocodeData = await geocodeRes.json() as any
-        cityName = geocodeData.features?.[0]?.text ?? null
+        const feature = geocodeData.features?.[0]
+        const placeCtx = feature?.context?.find((c: any) => c.id?.startsWith('place.'))
+        cityName = placeCtx?.text ?? null
         console.log('Geocoding result:', cityName)
       } catch (e) {
         console.error('Mapbox geocoding failed:', e)
