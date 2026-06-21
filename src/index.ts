@@ -192,6 +192,7 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     // 2. Reverse geocode city name from lat/lng
     let cityName: string | null = null
     const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN
+    console.log('Geocoding check — lat:', metadata.lat, 'lng:', metadata.lng, 'token:', !!mapboxToken)
     if (metadata.lat && metadata.lng && mapboxToken) {
       try {
         const geocodeRes = await fetch(
@@ -199,6 +200,7 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
         )
         const geocodeData = await geocodeRes.json() as any
         cityName = geocodeData.features?.[0]?.text ?? null
+        console.log('Geocoding result:', cityName)
       } catch (e) {
         console.error('Mapbox geocoding failed:', e)
       }
