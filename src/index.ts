@@ -200,7 +200,10 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
         )
         const geocodeData = await geocodeRes.json() as any
         const feature = geocodeData.features?.[0]
-        const placeCtx = feature?.context?.find((c: any) => c.id?.startsWith('place.'))
+        console.log('Mapbox feature:', JSON.stringify(feature?.place_type), 'context:', JSON.stringify(feature?.context?.map((c: any) => c.id)))
+        const placeCtx = feature?.context?.find((c: any) =>
+          c.id?.startsWith('place.') || c.id?.startsWith('locality.') || c.id?.startsWith('district.')
+        )
         cityName = placeCtx?.text ?? null
         console.log('Geocoding result:', cityName)
       } catch (e) {
