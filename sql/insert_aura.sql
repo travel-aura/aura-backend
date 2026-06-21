@@ -12,7 +12,8 @@ CREATE OR REPLACE FUNCTION insert_aura(
   p_is_verified  boolean,
   p_description  text DEFAULT '',
   p_parent_id    uuid DEFAULT NULL,
-  p_tags         text[] DEFAULT NULL
+  p_tags         text[] DEFAULT NULL,
+  p_city_name    text DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -22,7 +23,7 @@ AS $$
 BEGIN
   INSERT INTO auras (
     user_id, title, image_urls, archetype_tag,
-    heading, altitude, location, is_verified, description, parent_id, tags
+    heading, altitude, location, is_verified, description, parent_id, tags, city_name
   ) VALUES (
     p_user_id,
     p_title,
@@ -34,7 +35,8 @@ BEGIN
     p_is_verified,
     p_description,
     p_parent_id,
-    p_tags
+    p_tags,
+    p_city_name
   );
 END;
 $$;

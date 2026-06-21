@@ -1,0 +1,1 @@
+ALTER TABLE auras ADD COLUMN IF NOT EXISTS city_name TEXT;

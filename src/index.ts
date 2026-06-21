@@ -189,7 +189,26 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
 
     const publicUrls = await Promise.all(uploadPromises)
 
-    // 2. Save the ARRAY of URLs to the DB
+    // 2. Reverse geocode city name from lat/lng
+    let cityName: string | null = null
+    const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN
+    if (metadata.lat && metadata.lng && mapboxToken) {
+      try {
+        const geocodeRes = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${metadata.lng},${metadata.lat}.json?types=place&access_token=${mapboxToken}`
+        )
+        const geocodeData = await geocodeRes.json() as any
+        cityName = geocodeData.features?.[0]?.text ?? null
+      } catch (e) {
+        console.error('Mapbox geocoding failed:', e)
+      }
+    }
+
+    if (cityName) {
+      await supabase.rpc('upsert_user_city', { p_user_id: userId, p_city_name: cityName })
+    }
+
+    // 3. Save the ARRAY of URLs to the DB
     // IMPORTANT: Every key here must match the SQL "p_" names exactly!
     const payload = {
       p_user_id: userId,
@@ -203,7 +222,8 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_is_verified: !!metadata.is_verified,
       p_description: String(metadata.description || ''),
       p_parent_id: metadata.parent_id || null,
-      p_tags: Array.isArray(metadata.tags) ? metadata.tags : null
+      p_tags: Array.isArray(metadata.tags) ? metadata.tags : null,
+      p_city_name: cityName
     };
 
     const { error: dbError } = await supabase.rpc('insert_aura', payload);
@@ -256,33 +276,24 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
     const userId = req.user.id
     console.log('Fetching archetype stats for user:', userId)
 
-    const { data, error } = await supabase.rpc('get_user_archetype_stats', {
-      p_user_id: userId
-    })
+    const { data, error } = await supabase.rpc('get_user_stats', { p_user_id: userId })
 
     if (error) {
       console.error('Stats database error:', error)
       return res.status(500).json({ error: error.message })
     }
 
-    // Transform array result into stats object
+    const row = data?.[0]
     const stats = {
-      photo_spots: 0,
-      wanderings: 0,
-      indoor_vibes: 0
+      photo_spots:    Number(row?.photo_spots    ?? 0),
+      wanderings:     Number(row?.wanderings     ?? 0),
+      indoor_vibes:   Number(row?.indoor_vibes   ?? 0),
+      city_count:     Number(row?.city_count     ?? 0),
+      verified_count: Number(row?.verified_count ?? 0),
+      follower_count: Number(row?.follower_count ?? 0),
     }
 
-    if (data && Array.isArray(data)) {
-      data.forEach((row: any) => {
-        switch (row.archetype_tag) {
-          case 'Photo Spots':  stats.photo_spots = row.count; break
-          case 'Wanderings':   stats.wanderings  = row.count; break
-          case 'Indoor Vibes': stats.indoor_vibes = row.count; break
-        }
-      })
-    }
-
-    console.log('Archetype stats:', stats)
+    console.log('Stats:', stats)
     return res.json({ ok: true, stats })
   } catch (err: any) {
     console.error('Fetch stats error:', err)
@@ -463,7 +474,7 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
         p_viewer_id: viewerId
       }),
       supabase.rpc('get_user_public_posts', { p_user_id: profileUserId, p_viewer_id: viewerId }),
-      supabase.rpc('get_user_archetype_stats', { p_user_id: profileUserId })
+      supabase.rpc('get_user_stats', { p_user_id: profileUserId })
     ])
 
     if (profileResult.error) return res.status(500).json({ error: profileResult.error.message })
@@ -471,13 +482,14 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    const stats = { photo_spots: 0, wanderings: 0, indoor_vibes: 0 }
-    if (statsResult.data) {
-      statsResult.data.forEach((row: any) => {
-        if (row.archetype_tag === 'Photo Spots')  stats.photo_spots  = row.count
-        if (row.archetype_tag === 'Wanderings')   stats.wanderings   = row.count
-        if (row.archetype_tag === 'Indoor Vibes') stats.indoor_vibes = row.count
-      })
+    const statsRow = statsResult.data?.[0]
+    const stats = {
+      photo_spots:    Number(statsRow?.photo_spots    ?? 0),
+      wanderings:     Number(statsRow?.wanderings     ?? 0),
+      indoor_vibes:   Number(statsRow?.indoor_vibes   ?? 0),
+      city_count:     Number(statsRow?.city_count     ?? 0),
+      verified_count: Number(statsRow?.verified_count ?? 0),
+      follower_count: Number(statsRow?.follower_count ?? 0),
     }
 
     return res.json({

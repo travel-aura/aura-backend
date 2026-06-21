@@ -32,13 +32,16 @@ export interface Post {
   id: string;
   title: string;
   description: string;
-  image_urls: string[];        // snake_case
-  archetype_tag: string;       // snake_case
+  image_urls: string[];
+  archetype_tag: string;
   altitude: number;
   lat: number;
   lng: number;
-  created_at: string;          // snake_case
+  created_at: string;
   is_verified: boolean;
+  like_count?: number;
+  is_liked?: boolean;
+  tags?: string[];
 }
 
 // 3. What frontend sends in upload metadata
@@ -64,10 +67,9 @@ export interface ProfileData {
   };
   posts: Post[];
   stats: {
-    angle: number;
-    path: number;
-    spot: number;
-    interior: number;
+    photo_spots: number;
+    wanderings: number;
+    indoor_vibes: number;
   };
 }
 
@@ -181,9 +183,8 @@ export interface PublicProfileResponse {
   profile: PublicProfile;
   posts: Aura[];
   stats: {
-    angle: number;
-    path: number;
-    spot: number;
-    interior: number;
+    photo_spots: number;
+    wanderings: number;
+    indoor_vibes: number;
   };
 }
