@@ -5,6 +5,7 @@ DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double 
 DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text, uuid);
 DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text, uuid, uuid);
 DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text, uuid, uuid, text);
+DROP FUNCTION IF EXISTS search_auras(integer, integer, double precision, double precision, double precision, text, uuid, uuid, text, text);
 
 -- Unified search: global, spatial, archetype, and following feed
 -- Only returns anchors (parent_id IS NULL) with perspective count
@@ -17,7 +18,8 @@ CREATE OR REPLACE FUNCTION search_auras(
   p_archetype     text DEFAULT NULL,
   p_follower_id   uuid DEFAULT NULL,
   p_viewer_id     uuid DEFAULT NULL,
-  p_tag           text DEFAULT NULL
+  p_tag           text DEFAULT NULL,
+  p_query         text DEFAULT NULL
 )
 RETURNS TABLE (
   id                uuid,
@@ -80,6 +82,7 @@ BEGIN
     a.parent_id IS NULL
     AND (p_archetype IS NULL OR a.archetype_tag = p_archetype)
     AND (p_tag IS NULL OR p_tag = ANY(a.tags))
+    AND (p_query IS NULL OR a.title ILIKE '%' || p_query || '%')
     AND (
       p_follower_id IS NULL OR
       a.user_id IN (
