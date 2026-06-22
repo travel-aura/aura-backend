@@ -78,14 +78,6 @@ BEGIN
   FROM auras a
   WHERE
     a.parent_id IS NULL
-    AND (
-      p_lat IS NULL OR p_lng IS NULL OR
-      ST_DWithin(
-        a.location,
-        ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
-        p_radius_meters
-      )
-    )
     AND (p_archetype IS NULL OR a.archetype_tag = p_archetype)
     AND (p_tag IS NULL OR p_tag = ANY(a.tags))
     AND (
