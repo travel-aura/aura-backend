@@ -685,6 +685,43 @@ app.get('/api/auras/:id', async (req: any, res) => {
   }
 })
 
+// ========== DELETE AURA ==========
+app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const auraId = req.params.id
+    const userId = req.user.id
+
+    // 1. Fetch aura to check ownership and get image URLs
+    const { data: aura, error: fetchError } = await supabase
+      .from('auras')
+      .select('user_id, image_urls')
+      .eq('id', auraId)
+      .single()
+
+    if (fetchError || !aura) return res.status(404).json({ error: 'Aura not found' })
+    if (aura.user_id !== userId) return res.status(403).json({ error: 'Forbidden' })
+
+    // 2. Delete images from storage
+    if (aura.image_urls?.length > 0) {
+      const paths = aura.image_urls
+        .map((url: string) => url.split('/aura-images/')[1])
+        .filter(Boolean)
+      if (paths.length > 0) await supabase.storage.from('aura-images').remove(paths)
+    }
+
+    // 3. Delete child perspectives
+    await supabase.from('auras').delete().eq('parent_id', auraId)
+
+    // 4. Delete the aura
+    const { error: deleteError } = await supabase.from('auras').delete().eq('id', auraId)
+    if (deleteError) return res.status(500).json({ error: deleteError.message })
+
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 // ========== PROFILE ROUTES ==========
 
 // Get current user's profile
