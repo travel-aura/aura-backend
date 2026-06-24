@@ -542,6 +542,8 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       city_count:     Number(statsRow?.city_count     ?? 0),
       verified_count: Number(statsRow?.verified_count ?? 0),
       follower_count: Number(statsRow?.follower_count ?? 0),
+      top_tags:       (statsRow?.top_tags ?? []) as string[],
+      cities:         (statsRow?.cities   ?? []) as string[],
     }
 
     const userPosts = postsResult.data || []
