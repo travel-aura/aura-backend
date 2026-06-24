@@ -542,10 +542,12 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       follower_count: Number(statsRow?.follower_count ?? 0),
     }
 
+    const userPosts = postsResult.data || []
     return res.json({
       ok: true,
       profile: profileResult.data[0],
-      posts: postsResult.data || [],
+      posts: userPosts,
+      auras: userPosts,
       stats
     })
   } catch (err: any) {
