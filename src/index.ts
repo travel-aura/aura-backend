@@ -400,6 +400,44 @@ app.get('/api/auras/feed', async (req: any, res) => {
 })
 
 // ========== FOLLOWS ==========
+app.get('/api/follows/followers', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { data, error } = await supabase.rpc('get_followers', {
+      p_user_id: req.user.id,
+      p_current_user_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ users: data || [] })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/follows/following', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { data, error } = await supabase.rpc('get_following', {
+      p_user_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ users: data || [] })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/followers/:user_id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const { error } = await supabase.rpc('unfollow_user', {
+      p_follower_id: req.params.user_id,
+      p_following_id: req.user.id
+    })
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/api/users/search', authenticateSupabase, async (req: any, res) => {
   try {
     const q = req.query.q as string
