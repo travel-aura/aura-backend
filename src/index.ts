@@ -300,6 +300,7 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
       verified_count: Number(row?.verified_count ?? 0),
       follower_count: Number(row?.follower_count ?? 0),
       top_tags:       (row?.top_tags ?? []) as string[],
+      cities:         (row?.cities   ?? []) as string[],
     }
 
     console.log('Stats:', stats)

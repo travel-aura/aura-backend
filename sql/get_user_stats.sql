@@ -6,7 +6,8 @@ RETURNS TABLE (
   city_count     int,
   verified_count bigint,
   follower_count bigint,
-  top_tags       text[]
+  top_tags       text[],
+  cities         text[]
 )
 LANGUAGE sql
 SECURITY DEFINER
@@ -29,7 +30,12 @@ AS $$
         ORDER BY cnt DESC
         LIMIT 3
       ) t
-    ) AS top_tags
+    ) AS top_tags,
+    (
+      SELECT COALESCE(array_agg(city_name ORDER BY city_name), ARRAY[]::text[])
+      FROM user_cities
+      WHERE user_id = p_user_id
+    ) AS cities
   FROM auras
   WHERE user_id = p_user_id;
 $$;
