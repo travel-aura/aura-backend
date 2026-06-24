@@ -531,6 +531,8 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
     if (!profileResult.data || profileResult.data.length === 0) {
       return res.status(404).json({ error: 'User not found' })
     }
+    if (postsResult.error) return res.status(500).json({ error: postsResult.error.message })
+    if (statsResult.error) return res.status(500).json({ error: statsResult.error.message })
 
     const statsRow = statsResult.data?.[0]
     const stats = {
