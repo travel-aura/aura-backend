@@ -689,7 +689,6 @@ app.get('/api/auras/:id', async (req: any, res) => {
         title: d.title,
         description: d.description,
         image_urls: d.image_urls,
-        archetype_tag: d.archetype_tag,
         heading: d.heading,
         altitude: d.altitude,
         is_verified: d.is_verified,

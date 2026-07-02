@@ -1,6 +1,5 @@
 export interface AuraMetadata {
   title: string
-  archetype_tag: string
   heading: number
   alt: number
   lng: number
@@ -14,7 +13,6 @@ export interface Aura {
   user_id: string
   title: string | null
   image_url: string | null
-  archetype_tag: string | null
   heading: number | null
   altitude: number | null
   is_verified: boolean

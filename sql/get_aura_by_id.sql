@@ -11,7 +11,6 @@ RETURNS TABLE (
   title             text,
   description       text,
   image_urls        text[],
-  archetype_tag     text,
   heading           float,
   altitude          float,
   is_verified       boolean,
@@ -41,7 +40,6 @@ BEGIN
     a.title,
     a.description,
     a.image_urls,
-    a.archetype_tag,
     a.heading,
     a.altitude,
     a.is_verified,
@@ -58,7 +56,6 @@ BEGIN
         json_agg(json_build_object(
           'id',              c.id,
           'image_urls',      c.image_urls,
-          'archetype_tag',   c.archetype_tag,
           'created_at',      c.created_at,
           'user_name',       COALESCE(cp.name, SPLIT_PART(cu.email, '@', 1)),
           'user_avatar_url', cp.avatar_url

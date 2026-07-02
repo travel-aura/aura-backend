@@ -7,7 +7,6 @@ CREATE OR REPLACE FUNCTION check_nearby_auras(
 RETURNS TABLE (
   id              uuid,
   title           text,
-  archetype_tag   text,
   image_urls      text[],
   distance_meters float
 )
@@ -20,7 +19,6 @@ BEGIN
   SELECT
     a.id,
     a.title,
-    a.archetype_tag,
     a.image_urls,
     ST_Distance(
       a.location,
