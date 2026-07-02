@@ -222,7 +222,6 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_user_id: userId,
       p_title: String(metadata.title || 'Untitled'),
       p_image_urls: publicUrls,
-      p_archetype_tag: String(metadata.archetype_tag || 'none'),
       p_heading: Number(metadata.heading) || 0,
       p_altitude: Number(metadata.altitude) || 0,
       p_lng: Number(metadata.lng) || 0,
@@ -282,7 +281,7 @@ app.get('/api/auras/me', authenticateSupabase, async (req: any, res) => {
 app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
   try {
     const userId = req.user.id
-    console.log('Fetching archetype stats for user:', userId)
+    console.log('Fetching stats for user:', userId)
 
     const { data, error } = await supabase.rpc('get_user_stats', { p_user_id: userId })
 
@@ -293,9 +292,6 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
 
     const row = data?.[0]
     const stats = {
-      photo_spots:    Number(row?.photo_spots    ?? 0),
-      wanderings:     Number(row?.wanderings     ?? 0),
-      indoor_vibes:   Number(row?.indoor_vibes   ?? 0),
       city_count:     Number(row?.city_count     ?? 0),
       verified_count: Number(row?.verified_count ?? 0),
       follower_count: Number(row?.follower_count ?? 0),
@@ -340,13 +336,7 @@ app.get('/api/auras/check-nearby', async (req: any, res) => {
   }
 })
 
-// ========== GET FEED (ALL AURAS WITH PAGINATION + SPATIAL + ARCHETYPE FILTER) ==========
-const archetypeMap: Record<string, string> = {
-  'PhotoSpots': 'Photo Spots',
-  'Wanderings': 'Wanderings',
-  'IndoorVibes': 'Indoor Vibes'
-}
-
+// ========== GET FEED (ALL AURAS WITH PAGINATION + SPATIAL + TAG FILTER) ==========
 app.get('/api/auras/feed', async (req: any, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 10
@@ -354,8 +344,6 @@ app.get('/api/auras/feed', async (req: any, res) => {
     const lat = req.query.lat ? parseFloat(req.query.lat as string) : null
     const lng = req.query.lng ? parseFloat(req.query.lng as string) : null
     const radius = parseFloat(req.query.radius as string) || 5000
-    const archetypeRaw = req.query.archetype as string | undefined
-    const archetype = archetypeRaw ? (archetypeMap[archetypeRaw] || archetypeRaw) : null
     const following = req.query.following === 'true'
     const tag = (req.query.tag as string) || null
     const query = (req.query.q as string) || null
@@ -376,7 +364,6 @@ app.get('/api/auras/feed', async (req: any, res) => {
       p_lat: lat,
       p_lng: lng,
       p_radius_meters: radius,
-      p_archetype: archetype,
       p_follower_id: followerId,
       p_viewer_id: viewerId,
       p_tag: tag,
@@ -536,9 +523,6 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
 
     const statsRow = statsResult.data?.[0]
     const stats = {
-      photo_spots:    Number(statsRow?.photo_spots    ?? 0),
-      wanderings:     Number(statsRow?.wanderings     ?? 0),
-      indoor_vibes:   Number(statsRow?.indoor_vibes   ?? 0),
       city_count:     Number(statsRow?.city_count     ?? 0),
       verified_count: Number(statsRow?.verified_count ?? 0),
       follower_count: Number(statsRow?.follower_count ?? 0),

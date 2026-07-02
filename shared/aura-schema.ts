@@ -1,9 +1,7 @@
 /**
  * SOURCE OF TRUTH: AURA DATA CONTRACT
- * Updated: 2026-03-18
+ * Updated: 2026-07-02
  */
-
-export type Archetype = 'Photo Spots' | 'Wanderings' | 'Indoor Vibes';
 
 // 1. Complete database object
 export interface Aura {
@@ -12,7 +10,6 @@ export interface Aura {
   title: string;
   description: string;
   image_urls: string[];
-  archetype_tag: string;
   heading: number;
   altitude: number;
   is_verified: boolean;
@@ -20,8 +17,8 @@ export interface Aura {
   lat: number;
   lng: number;
   parent_id: string | null;
-  distance_meters: number | null;   // null on global feed, metres from search point on spatial search
-  perspective_count: number;        // count of child perspectives (0 for perspectives themselves)
+  distance_meters: number | null;
+  perspective_count: number;
   like_count: number;
   is_liked: boolean;
   tags: string[];
@@ -33,7 +30,6 @@ export interface Post {
   title: string;
   description: string;
   image_urls: string[];
-  archetype_tag: string;
   altitude: number;
   lat: number;
   lng: number;
@@ -48,12 +44,12 @@ export interface Post {
 export interface AuraUploadMetadata {
   title: string;
   description?: string;
-  archetype_tag: Archetype;
-  lat?: number;                // Optional - only if GPS found
-  lng?: number;                // Optional - only if GPS found
-  heading?: number;            // Optional - only if GPS found
-  altitude?: number;           // Optional - only if GPS found (formerly alt)
-  is_verified: boolean;        // true if GPS, false if no GPS
+  lat?: number;
+  lng?: number;
+  heading?: number;
+  altitude?: number;
+  is_verified: boolean;
+  tags?: string[];
 }
 
 // 4. Profile page response
@@ -66,11 +62,7 @@ export interface ProfileData {
     bio: string | null;
   };
   posts: Post[];
-  stats: {
-    photo_spots: number;
-    wanderings: number;
-    indoor_vibes: number;
-  };
+  stats: UserStats;
 }
 
 // 5. Backend RPC parameters
@@ -78,13 +70,14 @@ export interface InsertAuraParams {
   p_user_id: string;
   p_title: string;
   p_image_urls: string[];
-  p_archetype_tag: Archetype;
   p_description?: string | null;
   p_lat?: number | null;
   p_lng?: number | null;
   p_altitude?: number;
   p_heading?: number;
   p_is_verified: boolean;
+  p_tags?: string[] | null;
+  p_city_name?: string | null;
 }
 
 // 6. Feed response with pagination
@@ -98,33 +91,34 @@ export interface FeedResponse {
   };
 }
 
-// 7. Archetype stats response
-export interface ArchetypeStats {
-  photo_spots: number;
-  wanderings: number;
-  indoor_vibes: number;
+// 7. User stats
+export interface UserStats {
+  city_count: number;
+  verified_count: number;
+  follower_count: number;
+  top_tags: string[];
+  cities: string[];
 }
 
 // 8. User profile
 export interface UserProfile {
   user_id: string;
   email: string;
-  name: string;             // Max 10 chars, defaults to email prefix
-  bio: string | null;       // Max 100 chars
+  name: string;
+  bio: string | null;
   avatar_url: string | null;
 }
 
-// 9. Profile update payload (all fields optional)
+// 9. Profile update payload
 export interface ProfileUpdatePayload {
-  name?: string;            // Max 10 chars
-  bio?: string;             // Max 100 chars
+  name?: string;
+  bio?: string;
 }
 
 // 10. A perspective shown inside the detail view
 export interface Perspective {
   id: string;
   image_urls: string[];
-  archetype_tag: string;
   created_at: string;
   user_name: string;
   user_avatar_url: string | null;
@@ -163,10 +157,10 @@ export interface Notification {
   actor_id: string;
   actor_name: string;
   actor_avatar: string | null;
-  is_following: boolean;  // does the recipient already follow back?
+  is_following: boolean;
 }
 
-// 15. Public user profile (shown to others — no saved posts)
+// 15. Public user profile
 export interface PublicProfile {
   user_id: string;
   name: string;
@@ -182,9 +176,6 @@ export interface PublicProfileResponse {
   ok: true;
   profile: PublicProfile;
   posts: Aura[];
-  stats: {
-    photo_spots: number;
-    wanderings: number;
-    indoor_vibes: number;
-  };
+  auras: Aura[];
+  stats: UserStats;
 }
