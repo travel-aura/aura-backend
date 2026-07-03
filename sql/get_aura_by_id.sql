@@ -1,4 +1,4 @@
--- Single aura detail: includes perspectives + is_saved
+-- Single aura detail: includes perspectives + is_saved + EXIF fields
 DROP FUNCTION IF EXISTS get_aura_by_id(uuid);
 DROP FUNCTION IF EXISTS get_aura_by_id(uuid, uuid);
 CREATE OR REPLACE FUNCTION get_aura_by_id(
@@ -11,6 +11,7 @@ RETURNS TABLE (
   title             text,
   description       text,
   image_urls        text[],
+  archetype_tag     text,
   heading           float,
   altitude          float,
   is_verified       boolean,
@@ -26,7 +27,11 @@ RETURNS TABLE (
   is_saved          boolean,
   like_count        bigint,
   is_liked          boolean,
-  tags              text[]
+  tags              text[],
+  taken_at          text,
+  tz_offset         text,
+  gps_accuracy      float,
+  gps_timestamp     text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -40,6 +45,7 @@ BEGIN
     a.title,
     a.description,
     a.image_urls,
+    a.archetype_tag,
     a.heading,
     a.altitude,
     a.is_verified,
@@ -56,6 +62,7 @@ BEGIN
         json_agg(json_build_object(
           'id',              c.id,
           'image_urls',      c.image_urls,
+          'archetype_tag',   c.archetype_tag,
           'created_at',      c.created_at,
           'user_name',       COALESCE(cp.name, SPLIT_PART(cu.email, '@', 1)),
           'user_avatar_url', cp.avatar_url
@@ -78,7 +85,11 @@ BEGIN
         EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_viewer_id AND l.aura_id = a.id)
       ELSE false
     END AS is_liked,
-    COALESCE(a.tags, ARRAY[]::text[]) AS tags
+    COALESCE(a.tags, ARRAY[]::text[]) AS tags,
+    a.taken_at,
+    a.tz_offset,
+    a.gps_accuracy,
+    a.gps_timestamp
   FROM auras a
   LEFT JOIN auth.users au ON a.user_id = au.id
   LEFT JOIN profiles p ON a.user_id = p.user_id

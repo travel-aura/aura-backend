@@ -217,20 +217,24 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     }
 
     // 3. Save the ARRAY of URLs to the DB
-    // IMPORTANT: Every key here must match the SQL "p_" names exactly!
     const payload = {
-      p_user_id: userId,
-      p_title: String(metadata.title || 'Untitled'),
-      p_image_urls: publicUrls,
-      p_heading: Number(metadata.heading) || 0,
-      p_altitude: Number(metadata.altitude) || 0,
-      p_lng: Number(metadata.lng) || 0,
-      p_lat: Number(metadata.lat) || 0,
-      p_is_verified: !!metadata.is_verified,
-      p_description: String(metadata.description || ''),
-      p_parent_id: metadata.parent_id || null,
-      p_tags: Array.isArray(metadata.tags) ? metadata.tags : null,
-      p_city_name: cityName
+      p_user_id:       userId,
+      p_title:         String(metadata.title || 'Untitled'),
+      p_image_urls:    publicUrls,
+      p_heading:       Number(metadata.heading) || 0,
+      p_altitude:      Number(metadata.altitude) || 0,
+      p_lng:           Number(metadata.lng) || 0,
+      p_lat:           Number(metadata.lat) || 0,
+      p_is_verified:   !!metadata.is_verified,
+      p_description:   String(metadata.description || ''),
+      p_parent_id:     metadata.parent_id || null,
+      p_tags:          Array.isArray(metadata.tags) ? metadata.tags : null,
+      p_city_name:     cityName,
+      p_archetype_tag: metadata.archetype_tag || null,
+      p_taken_at:      metadata.taken_at || null,
+      p_tz_offset:     metadata.tz_offset || null,
+      p_gps_accuracy:  metadata.gps_accuracy || null,
+      p_gps_timestamp: metadata.gps_timestamp || null,
     };
 
     const { error: dbError } = await supabase.rpc('insert_aura', payload);
@@ -244,6 +248,23 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
         hint: dbError.hint,
         details: dbError.details
       });
+    }
+
+    // 4. If this is a perspective, notify the parent post owner
+    if (metadata.parent_id) {
+      const { data: parentAura } = await supabase
+        .from('auras')
+        .select('user_id')
+        .eq('id', metadata.parent_id)
+        .single()
+      if (parentAura && parentAura.user_id !== userId) {
+        await supabase.rpc('create_notification', {
+          p_recipient_id: parentAura.user_id,
+          p_actor_id: userId,
+          p_type: 'perspective',
+          p_aura_id: metadata.parent_id
+        })
+      }
     }
 
     return res.status(200).json({ success: true, urls: publicUrls })
@@ -295,6 +316,7 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
       city_count:     Number(row?.city_count     ?? 0),
       verified_count: Number(row?.verified_count ?? 0),
       follower_count: Number(row?.follower_count ?? 0),
+      friend_count:   Number(row?.friend_count   ?? 0),
       top_tags:       (row?.top_tags ?? []) as string[],
       cities:         (row?.cities   ?? []) as string[],
     }
@@ -526,6 +548,7 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       city_count:     Number(statsRow?.city_count     ?? 0),
       verified_count: Number(statsRow?.verified_count ?? 0),
       follower_count: Number(statsRow?.follower_count ?? 0),
+      friend_count:   Number(statsRow?.friend_count   ?? 0),
       top_tags:       (statsRow?.top_tags ?? []) as string[],
       cities:         (statsRow?.cities   ?? []) as string[],
     }
@@ -577,6 +600,16 @@ app.post('/api/saves', authenticateSupabase, async (req: any, res) => {
     if (!aura_id) return res.status(400).json({ error: 'aura_id required' })
     const { error } = await supabase.rpc('save_aura', { p_user_id: req.user.id, p_aura_id: aura_id })
     if (error) return res.status(500).json({ error: error.message })
+    // Notify post owner
+    const { data: aura } = await supabase.from('auras').select('user_id').eq('id', aura_id).single()
+    if (aura && aura.user_id !== req.user.id) {
+      await supabase.rpc('create_notification', {
+        p_recipient_id: aura.user_id,
+        p_actor_id: req.user.id,
+        p_type: 'save',
+        p_aura_id: aura_id
+      })
+    }
     return res.json({ ok: true })
   } catch (err: any) {
     return res.status(500).json({ error: err.message })
@@ -689,6 +722,7 @@ app.get('/api/auras/:id', async (req: any, res) => {
         title: d.title,
         description: d.description,
         image_urls: d.image_urls,
+        archetype_tag: d.archetype_tag,
         heading: d.heading,
         altitude: d.altitude,
         is_verified: d.is_verified,
@@ -702,6 +736,10 @@ app.get('/api/auras/:id', async (req: any, res) => {
         like_count: d.like_count,
         is_liked: d.is_liked,
         tags: d.tags ?? [],
+        taken_at: d.taken_at ?? null,
+        tz_offset: d.tz_offset ?? null,
+        gps_accuracy: d.gps_accuracy ?? null,
+        gps_timestamp: d.gps_timestamp ?? null,
         user: {
           id: d.user_id,
           name: d.user_name,

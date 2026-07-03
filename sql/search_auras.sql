@@ -27,6 +27,7 @@ RETURNS TABLE (
   title             text,
   description       text,
   image_urls        text[],
+  archetype_tag     text,
   heading           float,
   altitude          float,
   is_verified       boolean,
@@ -52,6 +53,7 @@ BEGIN
     a.title,
     a.description,
     a.image_urls,
+    a.archetype_tag,
     a.heading,
     a.altitude,
     a.is_verified,
@@ -87,14 +89,12 @@ BEGIN
       )
     )
   ORDER BY
-    -- On following feed: friends (mutual follows) first, then one-way follows
     CASE WHEN p_follower_id IS NOT NULL THEN
       CASE WHEN EXISTS(
         SELECT 1 FROM follows f2
         WHERE f2.follower_id = a.user_id AND f2.following_id = p_follower_id
       ) THEN 0 ELSE 1 END
     END ASC NULLS LAST,
-    -- On spatial feed only (not following feed): nearest first
     CASE WHEN p_follower_id IS NULL AND p_lat IS NOT NULL AND p_lng IS NOT NULL THEN
       ST_Distance(a.location, ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography)
     END ASC NULLS LAST,

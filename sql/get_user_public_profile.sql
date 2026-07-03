@@ -1,4 +1,4 @@
--- Public profile: user info + posts + stats + follow counts + is_following
+-- Public profile: user info + follow counts + is_following
 CREATE OR REPLACE FUNCTION get_user_public_profile(
   p_profile_user_id uuid,
   p_viewer_id       uuid DEFAULT NULL
@@ -39,6 +39,7 @@ END;
 $$;
 
 -- Get public posts for a user (anchors only, same shape as feed)
+DROP FUNCTION IF EXISTS get_user_public_posts(uuid, uuid);
 CREATE OR REPLACE FUNCTION get_user_public_posts(p_user_id uuid, p_viewer_id uuid DEFAULT NULL)
 RETURNS TABLE (
   id                uuid,
@@ -46,6 +47,7 @@ RETURNS TABLE (
   title             text,
   description       text,
   image_urls        text[],
+  archetype_tag     text,
   heading           float,
   altitude          float,
   is_verified       boolean,
@@ -70,6 +72,7 @@ BEGIN
     a.title,
     a.description,
     a.image_urls,
+    a.archetype_tag,
     a.heading,
     a.altitude,
     a.is_verified,
