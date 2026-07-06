@@ -32,7 +32,8 @@ RETURNS TABLE (
   tz_offset         text,
   gps_accuracy      float,
   gps_timestamp     text,
-  place_name        text
+  place_name        text,
+  place_id          uuid
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -91,7 +92,8 @@ BEGIN
     a.tz_offset,
     a.gps_accuracy,
     a.gps_timestamp,
-    a.place_name
+    a.place_name,
+    a.place_id
   FROM auras a
   LEFT JOIN auth.users au ON a.user_id = au.id
   LEFT JOIN profiles p ON a.user_id = p.user_id

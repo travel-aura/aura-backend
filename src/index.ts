@@ -216,7 +216,55 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       await supabase.rpc('upsert_user_city', { p_user_id: userId, p_city_name: cityName })
     }
 
-    // 3. Save the ARRAY of URLs to the DB
+    // 3. Find or create Place
+    let placeId: string | null = metadata.place_id || null
+    let isNewPlace = false
+
+    if (!placeId) {
+      if (metadata.venue_id) {
+        // Named venue: match by venue_id or create
+        const { data: existing } = await supabase
+          .from('places')
+          .select('id')
+          .eq('venue_id', metadata.venue_id)
+          .maybeSingle()
+
+        if (existing) {
+          placeId = existing.id
+        } else {
+          const { data: newId } = await supabase.rpc('create_place', {
+            p_name: metadata.place_name || 'Unnamed Venue',
+            p_lat: Number(metadata.lat) || 0,
+            p_lng: Number(metadata.lng) || 0,
+            p_venue_id: metadata.venue_id
+          })
+          placeId = newId
+          isNewPlace = true
+        }
+      } else if (metadata.lat && metadata.lng) {
+        // GPS spot: check proximity
+        const { data: nearby } = await supabase.rpc('check_nearby_place', {
+          p_lat: Number(metadata.lat),
+          p_lng: Number(metadata.lng),
+          p_radius_meters: 20
+        })
+
+        if (nearby && nearby.length > 0) {
+          placeId = nearby[0].id
+        } else {
+          const { data: newId } = await supabase.rpc('create_place', {
+            p_name: metadata.place_name || null,
+            p_lat: Number(metadata.lat),
+            p_lng: Number(metadata.lng),
+            p_venue_id: null
+          })
+          placeId = newId
+          isNewPlace = true
+        }
+      }
+    }
+
+    // 4. Insert post
     const payload = {
       p_user_id:       userId,
       p_title:         String(metadata.title || 'Untitled'),
@@ -236,9 +284,10 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_gps_accuracy:  metadata.gps_accuracy || null,
       p_gps_timestamp: metadata.gps_timestamp || null,
       p_place_name:    metadata.place_name || null,
+      p_place_id:      placeId,
     };
 
-    const { error: dbError } = await supabase.rpc('insert_aura', payload);
+    const { data: newPostId, error: dbError } = await supabase.rpc('insert_aura', payload);
 
     if (dbError) {
       console.log("CRITICAL DEBUG: RPC Failed");
@@ -251,7 +300,19 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       });
     }
 
-    // 4. If this is a perspective, notify the parent post owner
+    // 5. Place post-insert updates
+    if (placeId && newPostId) {
+      if (isNewPlace) {
+        // Set cover_post_id on newly created place
+        await supabase.from('places').update({ cover_post_id: newPostId }).eq('id', placeId)
+      }
+      if (metadata.is_verified) {
+        // Increment verified_count for any GPS-verified post
+        await supabase.rpc('increment_place_verified_count', { p_place_id: placeId })
+      }
+    }
+
+    // 6. If this is a perspective, notify the parent post owner
     if (metadata.parent_id) {
       const { data: parentAura } = await supabase
         .from('auras')
@@ -271,6 +332,59 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     return res.status(200).json({ success: true, urls: publicUrls })
   } catch (err: any) {
     console.error('Upload Error Details:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ========== PLACES ==========
+app.get('/api/places/nearby', async (req: any, res) => {
+  try {
+    const lat = parseFloat(req.query.lat as string)
+    const lng = parseFloat(req.query.lng as string)
+    const radius = parseFloat(req.query.radius as string) || 50
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'lat and lng are required' })
+    }
+
+    const { data, error } = await supabase.rpc('check_nearby_place', {
+      p_lat: lat,
+      p_lng: lng,
+      p_radius_meters: radius
+    })
+
+    if (error) return res.status(500).json({ error: error.message })
+    return res.json({ ok: true, places: data || [] })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/places/:id', async (req: any, res) => {
+  try {
+    let viewerId = null
+    const authHeader = req.headers.authorization
+    if (authHeader) {
+      const token = authHeader.split(' ')[1]
+      const { data: { user } } = await supabase.auth.getUser(token)
+      if (user) viewerId = user.id
+    }
+
+    const [placeResult, postsResult] = await Promise.all([
+      supabase.from('places').select('*').eq('id', req.params.id).single(),
+      supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId })
+    ])
+
+    if (placeResult.error || !placeResult.data) {
+      return res.status(404).json({ error: 'Place not found' })
+    }
+
+    return res.json({
+      ok: true,
+      place: placeResult.data,
+      posts: postsResult.data || []
+    })
+  } catch (err: any) {
     return res.status(500).json({ error: err.message })
   }
 })
@@ -742,6 +856,7 @@ app.get('/api/auras/:id', async (req: any, res) => {
         gps_accuracy: d.gps_accuracy ?? null,
         gps_timestamp: d.gps_timestamp ?? null,
         place_name: d.place_name ?? null,
+        place_id: d.place_id ?? null,
         user: {
           id: d.user_id,
           name: d.user_name,

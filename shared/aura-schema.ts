@@ -1,16 +1,59 @@
 /**
  * SOURCE OF TRUTH: AURA DATA CONTRACT
- * Last verified against DB: 2026-07-03
+ * Last updated: 2026-07-06
+ *
+ * Place architecture (new):
+ *   - Every GPS post belongs to a Place (place_id FK on auras table)
+ *   - Venue  = named business (restaurant/café/store) — has venue_id (Mapbox POI feature ID)
+ *   - Spot   = unnamed outdoor/generic location — no venue_id, matched by GPS proximity radius
+ *   - Backend creates a new Place when none exists at the upload location
+ *
+ * Upload flow:
+ *   1. "Is this at a restaurant/café/store?" → Mapbox POI search
+ *      Yes → sends venue_id + place_name → backend find-or-creates Place by venue_id
+ *      No  → Step 2
+ *   2. GET /api/places/nearby → show nearby generic spots
+ *      Pick spot → sends place_id (existing)
+ *      "New spot" / nothing nearby → no place_id → backend auto-creates Place
  */
 
 export type Archetype = 'Photo Spots' | 'Wanderings' | 'Indoor Vibes';
+
+// ── Place ─────────────────────────────────────────────────────────────────────
+
+export interface Place {
+  id: string;                   // uuid PK
+  name: string;                 // display name (from Mapbox POI or auto-generated)
+  latitude: number;
+  longitude: number;
+  venue_id: string | null;      // Mapbox POI feature ID — set for named venues, null for generic spots
+  cover_post_id: string | null; // FK → auras.id — first/featured post at this place
+  verified_count: number;       // # GPS-verified posts at this place
+}
+
+// Nearby place entry returned by GET /api/places/nearby
+export interface NearbyPlace {
+  id: string;
+  name: string;
+  distance_meters: number;
+  verified_count: number;
+  cover_image_url: string | null;
+}
+
+// GET /api/places/:place_id response
+export interface PlaceResponse {
+  place: Place;
+  posts: Aura[];                // other posts at this place (excluding the requested post)
+}
+
+// ── Aura (post) ───────────────────────────────────────────────────────────────
 
 // 1. Complete database object
 export interface Aura {
   id: string;
   user_id: string;
-  user_name?: string;              // flat field joined from users table (present on some endpoints)
-  user_avatar_url?: string | null; // flat field joined from users table (present on some endpoints)
+  user_name?: string;              // joined from users table (present on some endpoints)
+  user_avatar_url?: string | null; // joined from users table (present on some endpoints)
   title: string;
   description: string;
   image_urls: string[];
@@ -21,20 +64,22 @@ export interface Aura {
   created_at: string;
   lat: number;
   lng: number;
-  parent_id: string | null;
-  distance_meters: number | null;   // null on global feed, metres from search point on spatial search
-  perspective_count: number;        // count of child perspectives (0 for perspectives themselves)
+  place_id?: string | null;         // FK → places.id
+  place_name?: string | null;       // denormalised venue display name
+  parent_id: string | null;         // legacy — superseded by place_id
+  distance_meters: number | null;   // null on global feed, metres on spatial search
+  perspective_count: number;        // legacy count of child perspectives
   like_count: number;
   is_liked: boolean;
   tags: string[];
-  // Extended EXIF metadata (present when backend stores them)
-  taken_at?: string | null;        // EXIF DateTimeOriginal ISO string
-  tz_offset?: string | null;       // e.g. "+08:00" from OffsetTimeOriginal
-  gps_accuracy?: number | null;    // metres from GPSHPositioningError or GPSDOP
-  gps_timestamp?: string | null;   // UTC ISO from GPS clock
+  // Extended EXIF metadata (stored when backend receives them)
+  taken_at?: string | null;         // naive local ISO "YYYY-MM-DDTHH:MM:SS" (no Z)
+  tz_offset?: string | null;        // e.g. "+08:00"
+  gps_accuracy?: number | null;     // metres (GPSHPositioningError or GPSDOP)
+  gps_timestamp?: string | null;    // UTC ISO from GPS chip
 }
 
-// 2. For profile/feed display
+// 2. Lightweight post for profile/feed display
 export interface Post {
   id: string;
   title: string;
@@ -46,28 +91,37 @@ export interface Post {
   lng: number;
   created_at: string;
   is_verified: boolean;
+  place_id?: string | null;
+  place_name?: string | null;
   like_count?: number;
   is_liked?: boolean;
   tags?: string[];
 }
 
-// 3. What frontend sends in upload metadata
+// 3. What frontend sends as metadata JSON in upload FormData
 export interface AuraUploadMetadata {
   title: string;
   description?: string;
   archetype_tag?: Archetype;
-  lat?: number;                // Optional - only if GPS found
-  lng?: number;                // Optional - only if GPS found
-  heading?: number;            // Optional - only if GPS found
-  altitude?: number;           // Optional - only if GPS found (formerly alt)
-  is_verified: boolean;        // true if GPS, false if no GPS
-  parent_id?: string | null;   // null = Anchor, uuid = Perspective
-  tags?: string[];             // Up to 5 user-selected tags
-  // Extended EXIF metadata
-  taken_at?: string;           // naive local ISO: EXIF DateTimeOriginal (when photo was taken)
-  tz_offset?: string;          // e.g. "+08:00" from OffsetTimeOriginal
-  gps_accuracy?: number;       // metres: GPSHPositioningError or GPSDOP
-  gps_timestamp?: string;      // UTC ISO from GPS clock (GPSDateStamp + GPSTimeStamp)
+  // GPS — only present when EXIF has coordinates
+  lat?: number;
+  lng?: number;
+  heading?: number;
+  altitude?: number;
+  is_verified: boolean;           // true if GPS found, false otherwise
+  // Place linking (mutually exclusive paths — see upload flow above)
+  venue_id?: string | null;       // Mapbox POI feature ID → backend find-or-creates Place by this
+  place_name?: string;            // display name of the venue (sent alongside venue_id)
+  place_id?: string | null;       // uuid of existing generic spot chosen by user
+  // Legacy
+  parent_id?: string | null;
+  // Tags
+  tags?: string[];
+  // Extended EXIF
+  taken_at?: string;              // naive local ISO (no Z suffix)
+  tz_offset?: string;             // e.g. "+08:00"
+  gps_accuracy?: number;
+  gps_timestamp?: string;         // UTC ISO from GPS clock
 }
 
 // 4. Profile page response
@@ -87,7 +141,7 @@ export interface ProfileData {
   };
 }
 
-// 5. Backend RPC parameters (what backend needs to accept + store)
+// 5. Backend RPC parameters
 export interface InsertAuraParams {
   p_user_id: string;
   p_title: string;
@@ -100,12 +154,17 @@ export interface InsertAuraParams {
   p_heading?: number;
   p_is_verified: boolean;
   p_tags?: string[];
+  // Place
+  p_place_id?: string | null;     // link to existing Place
+  p_venue_id?: string | null;     // Mapbox POI ID → find-or-create Place
+  p_place_name?: string | null;   // venue display name
+  // Legacy
   p_parent_id?: string | null;
-  // Extended EXIF — new columns needed in DB
-  p_taken_at?: string;        // naive local ISO "YYYY-MM-DDTHH:MM:SS" (no TZ suffix)
-  p_tz_offset?: string;       // e.g. "+08:00"
-  p_gps_accuracy?: number;    // metres (GPSHPositioningError or GPSDOP)
-  p_gps_timestamp?: string;   // UTC ISO "YYYY-MM-DDTHH:MM:SSZ" from GPS chip
+  // Extended EXIF
+  p_taken_at?: string;            // naive local ISO "YYYY-MM-DDTHH:MM:SS"
+  p_tz_offset?: string;
+  p_gps_accuracy?: number;
+  p_gps_timestamp?: string;       // UTC ISO "YYYY-MM-DDTHH:MM:SSZ"
 }
 
 // 6. Feed response with pagination
@@ -127,27 +186,27 @@ export interface ArchetypeStats {
   city_count: number;
   verified_count: number;
   follower_count: number;
-  friend_count?: number;  // mutual follows; when present, shown as "Friends" stat
+  friend_count?: number;  // mutual follows; shown as "Friends" when present
   top_tags: string[];
   cities: string[];
 }
 
-// 8. User profile
+// 8. Current user profile (GET /me)
 export interface UserProfile {
   user_id: string;
   email: string;
-  name: string;             // Max 10 chars, defaults to email prefix
-  bio: string | null;       // Max 100 chars
+  name: string;             // max 10 chars
+  bio: string | null;       // max 100 chars
   avatar_url: string | null;
 }
 
-// 9. Profile update payload (all fields optional)
+// 9. Profile update payload (PUT /api/profile/update)
 export interface ProfileUpdatePayload {
-  name?: string;            // Max 10 chars
-  bio?: string;             // Max 100 chars
+  name?: string;
+  bio?: string;
 }
 
-// 10. A perspective shown inside the detail view
+// 10. Legacy perspective (Anchor/Perspective system — superseded by Place posts)
 export interface Perspective {
   id: string;
   image_urls: string[];
@@ -157,10 +216,10 @@ export interface Perspective {
   user_avatar_url: string | null;
 }
 
-// 11. Single aura with user info (for GET /api/auras/:id)
+// 11. Single aura with user info (GET /api/auras/:id)
 export interface AuraWithUser extends Aura {
   is_saved: boolean;
-  perspectives: Perspective[];
+  perspectives: Perspective[];  // legacy — "More shots" now comes from PlaceResponse.posts
   user?: {
     id: string;
     name: string;
@@ -190,12 +249,12 @@ export interface Notification {
   actor_id: string;
   actor_name: string;
   actor_avatar: string | null;
-  is_following: boolean;      // does the recipient already follow back?
-  aura_id?: string | null;    // set on save/perspective notifications
-  aura_title?: string | null; // set on save/perspective notifications
+  is_following: boolean;
+  aura_id?: string | null;
+  aura_title?: string | null;
 }
 
-// 15. Public user profile (shown to others — no saved posts)
+// 15. Public user profile (GET /api/users/:id)
 export interface PublicProfile {
   user_id: string;
   name: string;

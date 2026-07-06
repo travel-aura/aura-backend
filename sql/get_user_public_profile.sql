@@ -59,7 +59,8 @@ RETURNS TABLE (
   like_count        bigint,
   is_liked          boolean,
   tags              text[],
-  place_name        text
+  place_name        text,
+  place_id          uuid
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -89,7 +90,8 @@ BEGIN
       ELSE false
     END AS is_liked,
     COALESCE(a.tags, ARRAY[]::text[]) AS tags,
-    a.place_name
+    a.place_name,
+    a.place_id
   FROM auras a
   WHERE a.user_id = p_user_id AND a.parent_id IS NULL
   ORDER BY a.created_at DESC;

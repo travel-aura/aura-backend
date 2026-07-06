@@ -45,7 +45,8 @@ RETURNS TABLE (
   is_liked          boolean,
   tags              text[],
   saved_at          timestamptz,
-  place_name        text
+  place_name        text,
+  place_id          uuid
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -73,7 +74,8 @@ BEGIN
     EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_user_id AND l.aura_id = a.id) AS is_liked,
     COALESCE(a.tags, ARRAY[]::text[]) AS tags,
     s.created_at AS saved_at,
-    a.place_name
+    a.place_name,
+    a.place_id
   FROM saves s
   JOIN auras a ON s.aura_id = a.id
   WHERE s.user_id = p_user_id
