@@ -44,7 +44,8 @@ RETURNS TABLE (
   like_count        bigint,
   is_liked          boolean,
   tags              text[],
-  saved_at          timestamptz
+  saved_at          timestamptz,
+  place_name        text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -71,7 +72,8 @@ BEGIN
     (SELECT COUNT(*) FROM likes l WHERE l.aura_id = a.id)::bigint AS like_count,
     EXISTS(SELECT 1 FROM likes l WHERE l.user_id = p_user_id AND l.aura_id = a.id) AS is_liked,
     COALESCE(a.tags, ARRAY[]::text[]) AS tags,
-    s.created_at AS saved_at
+    s.created_at AS saved_at,
+    a.place_name
   FROM saves s
   JOIN auras a ON s.aura_id = a.id
   WHERE s.user_id = p_user_id

@@ -235,6 +235,7 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_tz_offset:     metadata.tz_offset || null,
       p_gps_accuracy:  metadata.gps_accuracy || null,
       p_gps_timestamp: metadata.gps_timestamp || null,
+      p_place_name:    metadata.place_name || null,
     };
 
     const { error: dbError } = await supabase.rpc('insert_aura', payload);
@@ -740,6 +741,7 @@ app.get('/api/auras/:id', async (req: any, res) => {
         tz_offset: d.tz_offset ?? null,
         gps_accuracy: d.gps_accuracy ?? null,
         gps_timestamp: d.gps_timestamp ?? null,
+        place_name: d.place_name ?? null,
         user: {
           id: d.user_id,
           name: d.user_name,

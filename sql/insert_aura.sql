@@ -18,7 +18,8 @@ CREATE OR REPLACE FUNCTION insert_aura(
   p_taken_at      text DEFAULT NULL,
   p_tz_offset     text DEFAULT NULL,
   p_gps_accuracy  float DEFAULT NULL,
-  p_gps_timestamp text DEFAULT NULL
+  p_gps_timestamp text DEFAULT NULL,
+  p_place_name    text DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -30,14 +31,14 @@ BEGIN
     user_id, title, image_urls,
     heading, altitude, location, is_verified, description,
     parent_id, tags, city_name, archetype_tag,
-    taken_at, tz_offset, gps_accuracy, gps_timestamp
+    taken_at, tz_offset, gps_accuracy, gps_timestamp, place_name
   ) VALUES (
     p_user_id, p_title, p_image_urls,
     p_heading, p_altitude,
     ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
     p_is_verified, p_description,
     p_parent_id, p_tags, p_city_name, p_archetype_tag,
-    p_taken_at, p_tz_offset, p_gps_accuracy, p_gps_timestamp
+    p_taken_at, p_tz_offset, p_gps_accuracy, p_gps_timestamp, p_place_name
   );
 END;
 $$;
