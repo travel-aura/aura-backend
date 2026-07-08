@@ -375,7 +375,11 @@ app.get('/api/places/:id', async (req: any, res) => {
       supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId })
     ])
 
-    if (placeResult.error || !placeResult.data) {
+    if (placeResult.error) {
+      console.error('Place fetch error:', placeResult.error)
+      return res.status(500).json({ error: placeResult.error.message })
+    }
+    if (!placeResult.data) {
       return res.status(404).json({ error: 'Place not found' })
     }
 
