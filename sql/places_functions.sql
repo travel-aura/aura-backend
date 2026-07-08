@@ -25,7 +25,7 @@ BEGIN
       pl.location,
       ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography
     )::float AS distance_meters,
-    pl.verified_count,
+    (SELECT COUNT(*)::int FROM auras av WHERE av.place_id = pl.id AND av.is_verified = true) AS verified_count,
     (a.image_urls)[1] AS cover_image_url
   FROM places pl
   LEFT JOIN auras a ON a.id = pl.cover_post_id
@@ -72,15 +72,8 @@ BEGIN
 END;
 $$;
 
--- Increment verified_count on a place (called when a GPS-verified post is added)
-CREATE OR REPLACE FUNCTION increment_place_verified_count(p_place_id uuid)
-RETURNS void
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-  UPDATE places SET verified_count = verified_count + 1 WHERE id = p_place_id;
-$$;
+-- Index for fast verified_count queries
+CREATE INDEX IF NOT EXISTS idx_auras_place_verified ON auras(place_id) WHERE is_verified = true;
 
 -- Get all posts at a place (for PlaceResponse.posts)
 CREATE OR REPLACE FUNCTION get_place_posts(

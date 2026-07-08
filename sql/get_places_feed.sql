@@ -28,7 +28,7 @@ BEGIN
     (a.image_urls)[1]::text AS cover_image_url,
     a.title AS cover_title,
     (SELECT COUNT(*) FROM auras ap WHERE ap.place_id = pl.id)::bigint AS shot_count,
-    pl.verified_count,
+    (SELECT COUNT(*)::int FROM auras av WHERE av.place_id = pl.id AND av.is_verified = true) AS verified_count,
     CASE
       WHEN p_lat IS NOT NULL AND p_lng IS NOT NULL THEN
         ST_Distance(

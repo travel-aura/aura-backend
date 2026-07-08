@@ -300,16 +300,9 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       });
     }
 
-    // 5. Place post-insert updates
-    if (placeId && newPostId) {
-      if (isNewPlace) {
-        // Set cover_post_id on newly created place
-        await supabase.from('places').update({ cover_post_id: newPostId }).eq('id', placeId)
-      }
-      if (metadata.is_verified) {
-        // Increment verified_count for any GPS-verified post
-        await supabase.rpc('increment_place_verified_count', { p_place_id: placeId })
-      }
+    // 5. If new place, set cover_post_id
+    if (isNewPlace && placeId && newPostId) {
+      await supabase.from('places').update({ cover_post_id: newPostId }).eq('id', placeId)
     }
 
     // 6. If this is a perspective, notify the parent post owner
@@ -415,12 +408,13 @@ app.get('/api/places/:id', async (req: any, res) => {
       if (user) viewerId = user.id
     }
 
-    const [placeResult, postsResult] = await Promise.all([
+    const [placeResult, postsResult, verifiedResult] = await Promise.all([
       supabase.from('places')
-        .select('id, name, latitude, longitude, venue_id, cover_post_id, verified_count, created_at')
+        .select('id, name, latitude, longitude, venue_id, cover_post_id, created_at')
         .eq('id', req.params.id)
         .maybeSingle(),
-      supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId })
+      supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId }),
+      supabase.from('auras').select('*', { count: 'exact', head: true }).eq('place_id', req.params.id).eq('is_verified', true)
     ])
 
     if (placeResult.error) {
@@ -433,7 +427,7 @@ app.get('/api/places/:id', async (req: any, res) => {
 
     return res.json({
       ok: true,
-      place: placeResult.data,
+      place: { ...placeResult.data, verified_count: verifiedResult.count ?? 0 },
       posts: postsResult.data || []
     })
   } catch (err: any) {
