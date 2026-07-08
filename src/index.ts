@@ -337,6 +337,51 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
 })
 
 // ========== PLACES ==========
+app.get('/api/places/feed', async (req: any, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10
+    const offset = parseInt(req.query.offset as string) || 0
+    const lat = req.query.lat ? parseFloat(req.query.lat as string) : null
+    const lng = req.query.lng ? parseFloat(req.query.lng as string) : null
+    const following = req.query.following === 'true'
+    const tag = (req.query.tag as string) || null
+    const query = (req.query.q as string) || null
+
+    let followerId = null
+    if (following) {
+      const authHeader = req.headers.authorization
+      if (authHeader) {
+        const token = authHeader.split(' ')[1]
+        const { data: { user } } = await supabase.auth.getUser(token)
+        if (user) followerId = user.id
+      }
+    }
+
+    const { data, error } = await supabase.rpc('get_places_feed', {
+      p_limit: limit,
+      p_offset: offset,
+      p_lat: lat,
+      p_lng: lng,
+      p_follower_id: followerId,
+      p_tag: tag,
+      p_query: query
+    })
+
+    if (error) {
+      console.error('Places feed error:', error)
+      return res.status(500).json({ error: error.message })
+    }
+
+    return res.json({
+      ok: true,
+      places: data || [],
+      pagination: { limit, offset, count: data?.length || 0 }
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/api/places/nearby', async (req: any, res) => {
   try {
     const lat = parseFloat(req.query.lat as string)
