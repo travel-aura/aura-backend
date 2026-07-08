@@ -854,6 +854,10 @@ app.get('/api/auras/:id', async (req: any, res) => {
   try {
     const auraId = req.params.id
 
+    if (!auraId || auraId === 'null' || auraId === 'undefined') {
+      return res.status(400).json({ error: 'Invalid aura id' })
+    }
+
     // Optionally resolve viewer for is_saved field
     let viewerId = null
     const authHeader = req.headers.authorization
