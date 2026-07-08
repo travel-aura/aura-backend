@@ -416,7 +416,10 @@ app.get('/api/places/:id', async (req: any, res) => {
     }
 
     const [placeResult, postsResult] = await Promise.all([
-      supabase.from('places').select('*').eq('id', req.params.id).single(),
+      supabase.from('places')
+        .select('id, name, latitude, longitude, venue_id, cover_post_id, verified_count, created_at')
+        .eq('id', req.params.id)
+        .maybeSingle(),
       supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId })
     ])
 
