@@ -298,10 +298,6 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       });
     }
 
-    // 5. If new place, set cover_post_id
-    if (isNewPlace && placeId && newPostId) {
-      await supabase.from('places').update({ cover_post_id: newPostId }).eq('id', placeId)
-    }
 
     // 6. If this is a perspective, notify the parent post owner
     if (metadata.parent_id) {

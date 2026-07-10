@@ -49,6 +49,13 @@ BEGIN
     p_place_name, p_place_id
   )
   RETURNING id INTO v_id;
+
+  -- Set cover_post_id on the place if it hasn't been set yet
+  IF p_place_id IS NOT NULL THEN
+    UPDATE places SET cover_post_id = v_id
+    WHERE id = p_place_id AND cover_post_id IS NULL;
+  END IF;
+
   RETURN v_id;
 END;
 $$;
