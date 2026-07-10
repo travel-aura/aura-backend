@@ -75,6 +75,45 @@ $$;
 -- Index for fast verified_count queries
 CREATE INDEX IF NOT EXISTS idx_auras_place_verified ON auras(place_id) WHERE is_verified = true;
 
+-- Get a single place by id (used by GET /api/places/:id)
+CREATE OR REPLACE FUNCTION get_place_by_id(p_place_id uuid)
+RETURNS TABLE (
+  id             uuid,
+  name           text,
+  latitude       float,
+  longitude      float,
+  venue_id       text,
+  cover_post_id  uuid,
+  verified_count int,
+  created_at     timestamptz
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT
+    pl.id,
+    pl.name,
+    pl.latitude,
+    pl.longitude,
+    pl.venue_id,
+    pl.cover_post_id,
+    (SELECT COUNT(*)::int FROM auras av WHERE av.place_id = pl.id AND av.is_verified = true),
+    pl.created_at
+  FROM places pl
+  WHERE pl.id = p_place_id;
+$$;
+
+-- Find place by venue_id (used during upload)
+CREATE OR REPLACE FUNCTION find_place_by_venue_id(p_venue_id text)
+RETURNS uuid
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT id FROM places WHERE venue_id = p_venue_id LIMIT 1;
+$$;
+
 -- Get all posts at a place (for PlaceResponse.posts)
 CREATE OR REPLACE FUNCTION get_place_posts(
   p_place_id  uuid,

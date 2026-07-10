@@ -223,14 +223,12 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     if (!placeId) {
       if (metadata.venue_id) {
         // Named venue: match by venue_id or create
-        const { data: existing } = await supabase
-          .from('places')
-          .select('id')
-          .eq('venue_id', metadata.venue_id)
-          .maybeSingle()
+        const { data: existingId } = await supabase.rpc('find_place_by_venue_id', {
+          p_venue_id: metadata.venue_id
+        })
 
-        if (existing) {
-          placeId = existing.id
+        if (existingId) {
+          placeId = existingId
         } else {
           const { data: newId } = await supabase.rpc('create_place', {
             p_name: metadata.place_name || 'Unnamed Venue',
@@ -408,26 +406,22 @@ app.get('/api/places/:id', async (req: any, res) => {
       if (user) viewerId = user.id
     }
 
-    const [placeResult, postsResult, verifiedResult] = await Promise.all([
-      supabase.from('places')
-        .select('id, name, latitude, longitude, venue_id, cover_post_id, created_at')
-        .eq('id', req.params.id)
-        .maybeSingle(),
-      supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId }),
-      supabase.from('auras').select('*', { count: 'exact', head: true }).eq('place_id', req.params.id).eq('is_verified', true)
+    const [placeResult, postsResult] = await Promise.all([
+      supabase.rpc('get_place_by_id', { p_place_id: req.params.id }),
+      supabase.rpc('get_place_posts', { p_place_id: req.params.id, p_viewer_id: viewerId })
     ])
 
     if (placeResult.error) {
       console.error('Place fetch error:', placeResult.error)
       return res.status(500).json({ error: placeResult.error.message })
     }
-    if (!placeResult.data) {
+    if (!placeResult.data || placeResult.data.length === 0) {
       return res.status(404).json({ error: 'Place not found' })
     }
 
     return res.json({
       ok: true,
-      place: { ...placeResult.data, verified_count: verifiedResult.count ?? 0 },
+      place: placeResult.data[0],
       posts: postsResult.data || []
     })
   } catch (err: any) {
