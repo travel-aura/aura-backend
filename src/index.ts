@@ -917,10 +917,10 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
     const auraId = req.params.id
     const userId = req.user.id
 
-    // 1. Fetch aura to check ownership and get image URLs
+    // 1. Fetch aura to check ownership and get image URLs + place_id
     const { data: aura, error: fetchError } = await supabase
       .from('auras')
-      .select('user_id, image_urls')
+      .select('user_id, image_urls, place_id')
       .eq('id', auraId)
       .single()
 
@@ -941,6 +941,11 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
     // 4. Delete the aura
     const { error: deleteError } = await supabase.from('auras').delete().eq('id', auraId)
     if (deleteError) return res.status(500).json({ error: deleteError.message })
+
+    // 5. Refresh place cover if this post was the cover
+    if (aura.place_id) {
+      await supabase.rpc('refresh_place_cover', { p_place_id: aura.place_id })
+    }
 
     return res.json({ ok: true })
   } catch (err: any) {

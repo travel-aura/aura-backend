@@ -114,14 +114,20 @@ AS $$
   SELECT id FROM places WHERE venue_id = p_venue_id LIMIT 1;
 $$;
 
--- Set cover_post_id on a place (used after first post upload)
-CREATE OR REPLACE FUNCTION update_place_cover(p_place_id uuid, p_post_id uuid)
+-- Refresh cover_post_id to the oldest remaining post (called after a post is deleted)
+CREATE OR REPLACE FUNCTION refresh_place_cover(p_place_id uuid)
 RETURNS void
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  UPDATE places SET cover_post_id = p_post_id WHERE id = p_place_id AND cover_post_id IS NULL;
+  UPDATE places SET cover_post_id = (
+    SELECT id FROM auras
+    WHERE place_id = p_place_id
+    ORDER BY created_at ASC
+    LIMIT 1
+  )
+  WHERE id = p_place_id;
 $$;
 
 -- Get all posts at a place (for PlaceResponse.posts)
