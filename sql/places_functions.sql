@@ -44,11 +44,11 @@ BEGIN
 END;
 $$;
 
--- Create a new place, return its id
+-- Create a new place, return its id (lat/lng optional)
 CREATE OR REPLACE FUNCTION create_place(
-  p_name     text,
-  p_lat      float,
-  p_lng      float,
+  p_name     text DEFAULT NULL,
+  p_lat      float DEFAULT NULL,
+  p_lng      float DEFAULT NULL,
   p_venue_id text DEFAULT NULL
 )
 RETURNS uuid
@@ -64,7 +64,10 @@ BEGIN
     COALESCE(p_name, 'Unnamed Spot'),
     p_lat,
     p_lng,
-    ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
+    CASE WHEN p_lat IS NOT NULL AND p_lng IS NOT NULL
+      THEN ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography
+      ELSE NULL
+    END,
     p_venue_id
   )
   RETURNING id INTO v_id;
