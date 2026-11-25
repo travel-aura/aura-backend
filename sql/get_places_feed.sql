@@ -1,3 +1,7 @@
+-- Adding p_radius_meters changes the signature, so drop the old 7-argument version first.
+-- The new parameter defaults to NULL, so a backend that doesn't send it keeps working.
+DROP FUNCTION IF EXISTS get_places_feed(int, int, float, float, uuid, text, text);
+
 CREATE OR REPLACE FUNCTION get_places_feed(
   p_limit       int DEFAULT 10,
   p_offset      int DEFAULT 0,
@@ -5,7 +9,8 @@ CREATE OR REPLACE FUNCTION get_places_feed(
   p_lng         float DEFAULT NULL,
   p_follower_id uuid DEFAULT NULL,
   p_tag         text DEFAULT NULL,
-  p_query       text DEFAULT NULL
+  p_query       text DEFAULT NULL,
+  p_radius_meters float DEFAULT NULL
 )
 RETURNS TABLE (
   id              uuid,
@@ -40,7 +45,13 @@ BEGIN
   FROM places pl
   LEFT JOIN auras a ON a.id = pl.cover_post_id
   WHERE
-    (p_query IS NULL OR pl.name ILIKE '%' || p_query || '%' OR a.title ILIKE '%' || p_query || '%')
+    -- Only places within the radius, when a location and radius are given
+    (p_radius_meters IS NULL OR p_lat IS NULL OR p_lng IS NULL OR ST_DWithin(
+      pl.location,
+      ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography,
+      p_radius_meters
+    ))
+    AND (p_query IS NULL OR pl.name ILIKE '%' || p_query || '%' OR a.title ILIKE '%' || p_query || '%')
     AND (p_tag IS NULL OR EXISTS (
       SELECT 1 FROM auras at2
       WHERE at2.place_id = pl.id AND p_tag = ANY(at2.tags)

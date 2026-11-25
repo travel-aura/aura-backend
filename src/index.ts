@@ -357,6 +357,9 @@ app.get('/api/places/feed', async (req: any, res) => {
     const offset = parseInt(req.query.offset as string) || 0
     const lat = req.query.lat ? parseFloat(req.query.lat as string) : null
     const lng = req.query.lng ? parseFloat(req.query.lng as string) : null
+    // Optional search radius in metres, clamped to 100 m - 100 km. Without it, results are only sorted by distance.
+    const rawRadius = req.query.radius ? parseFloat(req.query.radius as string) : NaN
+    const radius = Number.isFinite(rawRadius) ? Math.min(Math.max(rawRadius, 100), 100000) : null
     const following = req.query.following === 'true'
     const tag = (req.query.tag as string) || null
     const query = (req.query.q as string) || null
@@ -378,7 +381,8 @@ app.get('/api/places/feed', async (req: any, res) => {
       p_lng: lng,
       p_follower_id: followerId,
       p_tag: tag,
-      p_query: query
+      p_query: query,
+      p_radius_meters: radius
     })
 
     if (error) {
