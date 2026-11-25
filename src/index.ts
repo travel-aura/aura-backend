@@ -1,14 +1,16 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
-import multer from 'multer'
 import { supabase, createAuthClient } from './lib/supabase'
 import { authenticateSupabase } from './middleware/auth'
 import { decideVerified } from './lib/verification'
+import { upload, detectImageType, uploadErrorHandler, validatePostText, MAX_POST_IMAGES, authLimiter, uploadLimiter, apiLimiter } from './lib/limits'
 
 dotenv.config()
 
 const app = express()
+// Cloud Run sits behind one Google proxy; this makes req.ip the real client IP for rate limiting.
+app.set('trust proxy', 1)
 const PORT = parseInt(process.env.PORT || '8080', 10)
 
 // CORS configuration - Allow both development and production origins
@@ -42,10 +44,10 @@ app.use(
     credentials: true,
   })
 )
-app.use(express.json())
+app.use(express.json({ limit: '100kb' }))
+app.use('/auth', authLimiter)
+app.use('/api', apiLimiter)
 
-// Multer setup for file uploads (memory storage)
-const upload = multer({ storage: multer.memoryStorage() })
 
 app.get('/', (_req, res) => {
   res.json({ message: 'Aura Backend Running' })
@@ -210,7 +212,7 @@ app.get('/me', authenticateSupabase, async (req: any, res) => {
 })
 
 // ========== AURA UPLOAD ROUTE ==========
-app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), async (req: any, res) => {
+app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array('images', MAX_POST_IMAGES), async (req: any, res) => {
   try {
     const files = req.files as Express.Multer.File[]
 
@@ -223,6 +225,11 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
     if (!files || files.length === 0) {
       return res.status(400).json({ error: 'No images provided' })
     }
+    if (files.some((f) => !detectImageType(f.buffer))) {
+      return res.status(400).json({ error: 'Only JPEG, PNG or WebP images can be uploaded' })
+    }
+    const textError = validatePostText({ title: metadata.title, description: metadata.description, tags: metadata.tags })
+    if (textError) return res.status(400).json({ error: textError })
 
     // 0. Decide the verified badge on the server, not from the client's flag
     const photoLat = Number.isFinite(Number(metadata.lat)) && metadata.lat !== null && metadata.lat !== undefined ? Number(metadata.lat) : null
@@ -997,6 +1004,8 @@ app.put('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
     const auraId = req.params.id
     const userId = req.user.id
     const body = req.body
+    const editError = validatePostText({ title: body.title, description: body.description, tags: body.tags })
+    if (editError) return res.status(400).json({ error: editError })
 
     // 1. Verify ownership, get current image_urls
     const { data: aura, error: fetchError } = await supabase
@@ -1194,13 +1203,16 @@ app.put('/api/profile/update', authenticateSupabase, async (req: any, res) => {
 })
 
 // Upload profile avatar
-app.post('/api/profile/avatar', authenticateSupabase, upload.single('avatar'), async (req: any, res) => {
+app.post('/api/profile/avatar', uploadLimiter, authenticateSupabase, upload.single('avatar'), async (req: any, res) => {
   try {
     const userId = req.user.id
     const file = req.file as Express.Multer.File
 
     if (!file) {
       return res.status(400).json({ error: 'No avatar file provided' })
+    }
+    if (!detectImageType(file.buffer)) {
+      return res.status(400).json({ error: 'Only JPEG, PNG or WebP images can be uploaded' })
     }
 
     console.log('Uploading avatar for user:', userId)
@@ -1246,6 +1258,8 @@ app.post('/api/profile/avatar', authenticateSupabase, upload.single('avatar'), a
     return res.status(500).json({ error: err.message })
   }
 })
+
+app.use(uploadErrorHandler)
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`)
