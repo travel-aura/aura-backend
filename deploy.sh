@@ -14,7 +14,7 @@ gcloud run deploy $SERVICE_NAME \
   --platform managed \
   --region $REGION \
   --allow-unauthenticated \
-  --set-env-vars "SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,CORS_ORIGIN=https://aura-frontend-255644230597.us-central1.run.app"
+  --set-env-vars "SUPABASE_URL=$SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY,CORS_ORIGIN=https://aura-frontend-255644230597.us-central1.run.app,MAPBOX_ACCESS_TOKEN=$MAPBOX_ACCESS_TOKEN"
 
 echo "Deployment complete!"
 echo "Your backend URL will be shown above"

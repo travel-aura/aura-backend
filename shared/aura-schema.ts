@@ -41,9 +41,38 @@ export interface NearbyPlace {
 }
 
 // GET /api/places/:place_id response
+export interface PlacePost extends Aura {
+  is_saved: boolean;
+  user_name: string;
+  user_avatar_url: string | null;
+}
+
 export interface PlaceResponse {
+  ok: true;
   place: Place;
-  posts: Aura[];                // other posts at this place (excluding the requested post)
+  posts: PlacePost[];
+}
+
+// GET /api/places/feed item
+export interface PlaceFeedItem {
+  id: string;
+  cover_post_id: string | null;
+  cover_image_url: string | null;
+  cover_title: string | null;
+  shot_count: number;
+  verified_count: number;
+  distance_meters: number | null;
+}
+
+// GET /api/places/feed response
+export interface PlacesFeedResponse {
+  ok: true;
+  places: PlaceFeedItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    count: number;
+  };
 }
 
 // ── Aura (post) ───────────────────────────────────────────────────────────────

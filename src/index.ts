@@ -131,6 +131,33 @@ app.post('/auth/logout', async (req, res) => {
   }
 })
 
+app.post('/auth/google', async (req, res) => {
+  try {
+    const { id_token } = req.body
+
+    if (!id_token) {
+      return res.status(400).json({ error: 'id_token required' })
+    }
+
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: id_token,
+    })
+
+    if (error) {
+      return res.status(401).json({ error: error.message })
+    }
+
+    return res.json({
+      ok: true,
+      user: data.user,
+      session: data.session,
+    })
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/me', authenticateSupabase, async (req: any, res) => {
   try {
     const userId = req.user.id
@@ -911,6 +938,72 @@ app.get('/api/auras/:id', async (req: any, res) => {
   }
 })
 
+// ========== UPDATE AURA ==========
+app.put('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
+  try {
+    const auraId = req.params.id
+    const userId = req.user.id
+    const body = req.body
+
+    // 1. Verify ownership, get current image_urls
+    const { data: aura, error: fetchError } = await supabase
+      .from('auras')
+      .select('user_id, image_urls')
+      .eq('id', auraId)
+      .single()
+
+    if (fetchError || !aura) return res.status(404).json({ error: 'Aura not found' })
+    if (aura.user_id !== userId) return res.status(403).json({ error: 'Forbidden' })
+
+    const updatePayload: Record<string, any> = {}
+    if (body.title !== undefined) updatePayload.title = String(body.title)
+    if (body.description !== undefined) updatePayload.description = String(body.description)
+    if (body.tags !== undefined) updatePayload.tags = Array.isArray(body.tags) ? body.tags : null
+
+    let removedUrls: string[] = []
+
+    if (body.image_urls !== undefined) {
+      const existingUrls: string[] = aura.image_urls ?? []
+      const existingSet = new Set(existingUrls)
+
+      // Photos can only be removed here, never added — silently drop anything
+      // that wasn't already on this aura rather than trusting client-supplied URLs.
+      const keptUrls = Array.isArray(body.image_urls)
+        ? body.image_urls.filter((url: string) => existingSet.has(url))
+        : []
+
+      if (keptUrls.length === 0) {
+        return res.status(400).json({ error: 'A post must have at least one image' })
+      }
+
+      removedUrls = existingUrls.filter((url) => !keptUrls.includes(url))
+      updatePayload.image_urls = keptUrls
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('auras')
+      .update(updatePayload)
+      .eq('id', auraId)
+      .select()
+      .single()
+
+    if (updateError) return res.status(500).json({ error: updateError.message })
+
+    // 2. Clean up storage for photos removed from the post
+    if (removedUrls.length > 0) {
+      const paths = removedUrls
+        .map((url) => url.split('/aura-images/')[1])
+        .filter(Boolean)
+      if (paths.length > 0) await supabase.storage.from('aura-images').remove(paths)
+    }
+
+    return res.json({ ok: true, aura: updated })
+  } catch (err: any) {
+    console.error('Update Aura Error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 // ========== DELETE AURA ==========
 app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
   try {
@@ -927,6 +1020,17 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
     if (fetchError || !aura) return res.status(404).json({ error: 'Aura not found' })
     if (aura.user_id !== userId) return res.status(403).json({ error: 'Forbidden' })
 
+    // Track every place this post or its perspectives belong to, so we can
+    // tell afterward whether any of them were left with zero posts.
+    const { data: children } = await supabase
+      .from('auras')
+      .select('place_id')
+      .eq('parent_id', auraId)
+
+    const placeIds = Array.from(new Set(
+      [aura.place_id, ...(children ?? []).map((c: any) => c.place_id)].filter(Boolean)
+    ))
+
     // 2. Delete images from storage
     if (aura.image_urls?.length > 0) {
       const paths = aura.image_urls
@@ -942,9 +1046,18 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
     const { error: deleteError } = await supabase.from('auras').delete().eq('id', auraId)
     if (deleteError) return res.status(500).json({ error: deleteError.message })
 
-    // 5. Refresh place cover if this post was the cover
-    if (aura.place_id) {
-      await supabase.rpc('refresh_place_cover', { p_place_id: aura.place_id })
+    // 5. For each affected place, delete it if it has no posts left; otherwise refresh its cover
+    for (const placeId of placeIds) {
+      const { count } = await supabase
+        .from('auras')
+        .select('id', { count: 'exact', head: true })
+        .eq('place_id', placeId)
+
+      if (!count) {
+        await supabase.from('places').delete().eq('id', placeId)
+      } else {
+        await supabase.rpc('refresh_place_cover', { p_place_id: placeId })
+      }
     }
 
     return res.json({ ok: true })
