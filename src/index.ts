@@ -9,33 +9,39 @@ import { upload, detectImageType, uploadErrorHandler, validatePostText, MAX_POST
 dotenv.config()
 
 const app = express()
+
+// Logs the real error for us and sends the user a generic message, so database
+// and internal details never reach the browser.
+function serverError(res: express.Response, err: unknown) {
+  console.error(err)
+  return res.status(500).json({ error: 'Something went wrong. Please try again.' })
+}
 // Cloud Run sits behind one Google proxy; this makes req.ip the real client IP for rate limiting.
 app.set('trust proxy', 1)
 const PORT = parseInt(process.env.PORT || '8080', 10)
 
-// CORS configuration - Allow both development and production origins
-const allowedOrigins = [
-  // Production
+// CORS: which websites may call this API.
+// Cloud Run sets K_SERVICE, so local and LAN addresses are only allowed when running on your own machine.
+const productionOrigins = [
   'https://aura-frontend-255644230597.us-central1.run.app',
   process.env.CORS_ORIGIN,
-  // Development - New IP
+]
+const devOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3003',
+  'http://localhost:3006',
+  // Phone testing on your local network
   'http://10.126.30.88:3000',
   'http://10.126.30.88:3001',
   'http://10.126.30.88:3002',
   'http://10.126.30.88:3003',
   'http://10.126.30.88:3006',
-  // Development - Old IPs (keep for compatibility)
-  'http://10.124.57.22:3000',
-  'http://10.124.57.22:3001',
-  'http://10.124.57.22:3006',
-  'http://192.168.1.30:3002',
-  'http://192.168.1.30:3003',
-  // Localhost
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  'http://localhost:3003',
-  'http://localhost:3006'
+]
+const allowedOrigins = [
+  ...productionOrigins,
+  ...(process.env.K_SERVICE ? [] : devOrigins),
 ].filter((origin): origin is string => Boolean(origin))
 
 app.use(
@@ -82,7 +88,7 @@ app.post('/auth/register', async (req, res) => {
       session: data.session,
     })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -109,7 +115,7 @@ app.post('/auth/login', async (req, res) => {
       session: data.session,
     })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -156,7 +162,7 @@ app.post('/auth/logout', async (req, res) => {
 
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -183,7 +189,7 @@ app.post('/auth/google', async (req, res) => {
       session: data.session,
     })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -197,7 +203,7 @@ app.get('/me', authenticateSupabase, async (req: any, res) => {
 
     if (error) {
       console.error('Profile fetch error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     if (!data || data.length === 0) {
@@ -207,7 +213,7 @@ app.get('/me', authenticateSupabase, async (req: any, res) => {
     return res.json({ ok: true, user: data[0] })
   } catch (err: any) {
     console.error('/me error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -275,21 +281,19 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
     // 2. Reverse geocode city name from lat/lng
     let cityName: string | null = null
     const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN
-    console.log('Geocoding check — lat:', metadata.lat, 'lng:', metadata.lng, 'token:', !!mapboxToken)
     if (metadata.lat && metadata.lng && mapboxToken) {
       try {
         const geocodeRes = await fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${metadata.lng},${metadata.lat}.json?access_token=${mapboxToken}`
         )
         const geocodeData = await geocodeRes.json() as any
-        console.log('Mapbox raw:', JSON.stringify(geocodeData).slice(0, 500))
         const feature = geocodeData.features?.[0]
-        console.log('Mapbox feature:', JSON.stringify(feature?.place_type), 'context:', JSON.stringify(feature?.context?.map((c: any) => c.id)))
-        const placeCtx = feature?.context?.find((c: any) =>
-          c.id?.startsWith('place.') || c.id?.startsWith('locality.') || c.id?.startsWith('district.')
-        )
-        cityName = placeCtx?.text ?? null
-        console.log('Geocoding result:', cityName)
+        // Mapbox lists areas from smallest to largest (neighbourhood, locality, place...).
+        // Take the city ("place") first; fall back to locality or district only if there is none.
+        // Picking the first match returned neighbourhoods like "Monti" instead of "Rome".
+        const areas: any[] = [feature, ...(feature?.context ?? [])].filter(Boolean)
+        const byType = (type: string) => areas.find((c: any) => c.id?.startsWith(`${type}.`))
+        cityName = (byType('place') ?? byType('locality') ?? byType('district'))?.text ?? null
       } catch (e) {
         console.error('Mapbox geocoding failed:', e)
       }
@@ -371,14 +375,7 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
     const { data: newPostId, error: dbError } = await supabase.rpc('insert_aura', payload);
 
     if (dbError) {
-      console.log("CRITICAL DEBUG: RPC Failed");
-      console.log("Payload sent to DB:", JSON.stringify(payload, null, 2));
-      console.log("Full Error Object:", dbError);
-      return res.status(500).json({
-        error: dbError.message,
-        hint: dbError.hint,
-        details: dbError.details
-      });
+      return serverError(res, dbError)
     }
 
 
@@ -402,7 +399,7 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
     return res.status(200).json({ success: true, urls: publicUrls })
   } catch (err: any) {
     console.error('Upload Error Details:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -443,7 +440,7 @@ app.get('/api/places/feed', async (req: any, res) => {
 
     if (error) {
       console.error('Places feed error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     return res.json({
@@ -452,7 +449,7 @@ app.get('/api/places/feed', async (req: any, res) => {
       pagination: { limit, offset, count: data?.length || 0 }
     })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -472,10 +469,10 @@ app.get('/api/places/nearby', async (req: any, res) => {
       p_radius_meters: radius
     })
 
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true, places: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -496,7 +493,7 @@ app.get('/api/places/:id', async (req: any, res) => {
 
     if (placeResult.error) {
       console.error('Place fetch error:', placeResult.error)
-      return res.status(500).json({ error: placeResult.error.message })
+      return serverError(res, placeResult.error)
     }
     if (!placeResult.data || placeResult.data.length === 0) {
       return res.status(404).json({ error: 'Place not found' })
@@ -508,7 +505,7 @@ app.get('/api/places/:id', async (req: any, res) => {
       posts: postsResult.data || []
     })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -516,7 +513,6 @@ app.get('/api/places/:id', async (req: any, res) => {
 app.get('/api/auras/me', authenticateSupabase, async (req: any, res) => {
   try {
     const userId = req.user.id
-    console.log('Fetching auras for user:', userId)
 
     // Use RPC to properly extract lat/lng from PostGIS geography
     const { data, error } = await supabase.rpc('get_user_auras', {
@@ -525,14 +521,13 @@ app.get('/api/auras/me', authenticateSupabase, async (req: any, res) => {
 
     if (error) {
       console.error('Database error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
-    console.log(`Found ${data?.length || 0} auras for user ${userId}`)
     return res.json({ ok: true, auras: data || [] })
   } catch (err: any) {
     console.error('Fetch auras error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -540,13 +535,12 @@ app.get('/api/auras/me', authenticateSupabase, async (req: any, res) => {
 app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
   try {
     const userId = req.user.id
-    console.log('Fetching stats for user:', userId)
 
     const { data, error } = await supabase.rpc('get_user_stats', { p_user_id: userId })
 
     if (error) {
       console.error('Stats database error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     const row = data?.[0]
@@ -559,11 +553,10 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
       cities:         (row?.cities   ?? []) as string[],
     }
 
-    console.log('Stats:', stats)
     return res.json({ ok: true, stats })
   } catch (err: any) {
     console.error('Fetch stats error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -586,13 +579,13 @@ app.get('/api/auras/check-nearby', async (req: any, res) => {
 
     if (error) {
       console.error('Nearby check error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     return res.json({ ok: true, nearby: data || [] })
   } catch (err: any) {
     console.error('Nearby check error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -632,7 +625,7 @@ app.get('/api/auras/feed', async (req: any, res) => {
 
     if (error) {
       console.error('Feed database error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     return res.json({
@@ -642,7 +635,7 @@ app.get('/api/auras/feed', async (req: any, res) => {
     })
   } catch (err: any) {
     console.error('Fetch feed error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -653,10 +646,10 @@ app.get('/api/follows/followers', authenticateSupabase, async (req: any, res) =>
       p_user_id: req.user.id,
       p_current_user_id: req.user.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ users: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -665,10 +658,10 @@ app.get('/api/follows/following', authenticateSupabase, async (req: any, res) =>
     const { data, error } = await supabase.rpc('get_following', {
       p_user_id: req.user.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ users: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -678,10 +671,10 @@ app.delete('/api/followers/:user_id', authenticateSupabase, async (req: any, res
       p_follower_id: req.params.user_id,
       p_following_id: req.user.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -693,10 +686,10 @@ app.get('/api/users/search', authenticateSupabase, async (req: any, res) => {
       p_query: q.trim(),
       p_current_user_id: req.user.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ users: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -708,7 +701,7 @@ app.post('/api/follows', authenticateSupabase, async (req: any, res) => {
       p_follower_id: req.user.id,
       p_following_id: user_id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     // Create follow notification for the person being followed
     await supabase.rpc('create_notification', {
       p_recipient_id: user_id,
@@ -717,7 +710,7 @@ app.post('/api/follows', authenticateSupabase, async (req: any, res) => {
     })
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -727,10 +720,10 @@ app.delete('/api/follows/:user_id', authenticateSupabase, async (req: any, res) 
       p_follower_id: req.user.id,
       p_following_id: req.params.user_id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -740,10 +733,10 @@ app.get('/api/notifications', authenticateSupabase, async (req: any, res) => {
     const { data, error } = await supabase.rpc('get_notifications', {
       p_user_id: req.user.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true, notifications: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -752,10 +745,10 @@ app.patch('/api/notifications/read', authenticateSupabase, async (req: any, res)
     const { error } = await supabase.rpc('mark_notifications_read', {
       p_user_id: req.user.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -774,12 +767,12 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       supabase.rpc('get_user_stats', { p_user_id: profileUserId })
     ])
 
-    if (profileResult.error) return res.status(500).json({ error: profileResult.error.message })
+    if (profileResult.error) return serverError(res, profileResult.error)
     if (!profileResult.data || profileResult.data.length === 0) {
       return res.status(404).json({ error: 'User not found' })
     }
-    if (postsResult.error) return res.status(500).json({ error: postsResult.error.message })
-    if (statsResult.error) return res.status(500).json({ error: statsResult.error.message })
+    if (postsResult.error) return serverError(res, postsResult.error)
+    if (statsResult.error) return serverError(res, statsResult.error)
 
     const statsRow = statsResult.data?.[0]
     const stats = {
@@ -800,7 +793,7 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       stats
     })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -808,10 +801,10 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
 app.get('/api/saves', authenticateSupabase, async (req: any, res) => {
   try {
     const { data, error } = await supabase.rpc('get_saved_auras', { p_user_id: req.user.id })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true, auras: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -825,10 +818,10 @@ app.get('/api/saves/check', authenticateSupabase, async (req: any, res) => {
       .eq('user_id', req.user.id)
       .eq('aura_id', auraId)
       .maybeSingle()
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ saved: !!data })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -837,7 +830,7 @@ app.post('/api/saves', authenticateSupabase, async (req: any, res) => {
     const { aura_id } = req.body
     if (!aura_id) return res.status(400).json({ error: 'aura_id required' })
     const { error } = await supabase.rpc('save_aura', { p_user_id: req.user.id, p_aura_id: aura_id })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     // Notify post owner
     const { data: aura } = await supabase.from('auras').select('user_id').eq('id', aura_id).single()
     if (aura && aura.user_id !== req.user.id) {
@@ -850,7 +843,7 @@ app.post('/api/saves', authenticateSupabase, async (req: any, res) => {
     }
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -860,10 +853,10 @@ app.delete('/api/saves/:aura_id', authenticateSupabase, async (req: any, res) =>
       p_user_id: req.user.id,
       p_aura_id: req.params.aura_id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -874,7 +867,7 @@ app.post('/api/likes', authenticateSupabase, async (req: any, res) => {
     if (!aura_id) return res.status(400).json({ error: 'aura_id required' })
 
     const { error } = await supabase.rpc('like_aura', { p_user_id: req.user.id, p_aura_id: aura_id })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
 
     // Send notification to post owner (skip if liking own post)
     const { data: aura } = await supabase
@@ -893,7 +886,7 @@ app.post('/api/likes', authenticateSupabase, async (req: any, res) => {
 
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -903,10 +896,10 @@ app.delete('/api/likes/:aura_id', authenticateSupabase, async (req: any, res) =>
       p_user_id: req.user.id,
       p_aura_id: req.params.aura_id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -916,10 +909,10 @@ app.get('/api/auras/:id/perspectives', async (req: any, res) => {
     const { data, error } = await supabase.rpc('get_aura_perspectives', {
       p_parent_id: req.params.id
     })
-    if (error) return res.status(500).json({ error: error.message })
+    if (error) return serverError(res, error)
     return res.json({ ok: true, perspectives: data || [] })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -948,7 +941,7 @@ app.get('/api/auras/:id', async (req: any, res) => {
 
     if (error) {
       console.error('Aura fetch error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     if (!data || data.length === 0) {
@@ -994,7 +987,7 @@ app.get('/api/auras/:id', async (req: any, res) => {
     })
   } catch (err: any) {
     console.error('Fetch aura error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -1049,7 +1042,7 @@ app.put('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
       .select()
       .single()
 
-    if (updateError) return res.status(500).json({ error: updateError.message })
+    if (updateError) return serverError(res, updateError)
 
     // 2. Clean up storage for photos removed from the post
     if (removedUrls.length > 0) {
@@ -1062,7 +1055,7 @@ app.put('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
     return res.json({ ok: true, aura: updated })
   } catch (err: any) {
     console.error('Update Aura Error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -1106,7 +1099,7 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
 
     // 4. Delete the aura
     const { error: deleteError } = await supabase.from('auras').delete().eq('id', auraId)
-    if (deleteError) return res.status(500).json({ error: deleteError.message })
+    if (deleteError) return serverError(res, deleteError)
 
     // 5. For each affected place, delete it if it has no posts left; otherwise refresh its cover
     for (const placeId of placeIds) {
@@ -1124,7 +1117,7 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
 
     return res.json({ ok: true })
   } catch (err: any) {
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -1134,7 +1127,6 @@ app.delete('/api/auras/:id', authenticateSupabase, async (req: any, res) => {
 app.get('/api/profile', authenticateSupabase, async (req: any, res) => {
   try {
     const userId = req.user.id
-    console.log('Fetching profile for user:', userId)
 
     const { data, error } = await supabase.rpc('get_user_profile', {
       p_user_id: userId
@@ -1142,7 +1134,7 @@ app.get('/api/profile', authenticateSupabase, async (req: any, res) => {
 
     if (error) {
       console.error('Profile fetch error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     if (!data || data.length === 0) {
@@ -1152,7 +1144,7 @@ app.get('/api/profile', authenticateSupabase, async (req: any, res) => {
     return res.json({ ok: true, profile: data[0] })
   } catch (err: any) {
     console.error('Profile error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -1181,7 +1173,6 @@ app.put('/api/profile/update', authenticateSupabase, async (req: any, res) => {
       }
     }
 
-    console.log(`Updating profile for user ${userId}:`, { name, bio })
 
     const { error } = await supabase.rpc('update_user_profile', {
       p_user_id: userId,
@@ -1192,13 +1183,13 @@ app.put('/api/profile/update', authenticateSupabase, async (req: any, res) => {
 
     if (error) {
       console.error('Profile update error:', error)
-      return res.status(500).json({ error: error.message })
+      return serverError(res, error)
     }
 
     return res.json({ ok: true, message: 'Profile updated successfully' })
   } catch (err: any) {
     console.error('Profile update error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -1215,7 +1206,6 @@ app.post('/api/profile/avatar', uploadLimiter, authenticateSupabase, upload.sing
       return res.status(400).json({ error: 'Only JPEG, PNG or WebP images can be uploaded' })
     }
 
-    console.log('Uploading avatar for user:', userId)
 
     // Upload to profile-avatars bucket
     const fileName = `${userId}/avatar-${Date.now()}.webp`
@@ -1229,7 +1219,7 @@ app.post('/api/profile/avatar', uploadLimiter, authenticateSupabase, upload.sing
 
     if (uploadError) {
       console.error('Avatar upload error:', uploadError)
-      return res.status(500).json({ error: uploadError.message })
+      return serverError(res, uploadError)
     }
 
     // Get public URL
@@ -1237,7 +1227,6 @@ app.post('/api/profile/avatar', uploadLimiter, authenticateSupabase, upload.sing
       .from('profile-avatars')
       .getPublicUrl(fileName)
 
-    console.log('Avatar uploaded:', publicUrl)
 
     // Update profile with new avatar URL
     const { error: updateError } = await supabase.rpc('update_user_profile', {
@@ -1249,13 +1238,13 @@ app.post('/api/profile/avatar', uploadLimiter, authenticateSupabase, upload.sing
 
     if (updateError) {
       console.error('Avatar URL update error:', updateError)
-      return res.status(500).json({ error: updateError.message })
+      return serverError(res, updateError)
     }
 
     return res.json({ ok: true, avatar_url: publicUrl })
   } catch (err: any) {
     console.error('Avatar upload error:', err)
-    return res.status(500).json({ error: err.message })
+    return serverError(res, err)
   }
 })
 
@@ -1264,5 +1253,4 @@ app.use(uploadErrorHandler)
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`)
   console.log(`Local: http://localhost:${PORT}`)
-  console.log(`Network: http://10.126.30.88:${PORT}`)
 })
