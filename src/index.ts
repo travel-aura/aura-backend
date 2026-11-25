@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import multer from 'multer'
-import { supabase } from './lib/supabase'
+import { supabase, createAuthClient } from './lib/supabase'
 import { authenticateSupabase } from './middleware/auth'
 
 dotenv.config()
@@ -64,7 +64,7 @@ app.post('/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' })
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await createAuthClient().auth.signUp({
       email,
       password,
     })
@@ -91,7 +91,7 @@ app.post('/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' })
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await createAuthClient().auth.signInWithPassword({
       email,
       password,
     })
@@ -139,7 +139,7 @@ app.post('/auth/google', async (req, res) => {
       return res.status(400).json({ error: 'id_token required' })
     }
 
-    const { data, error } = await supabase.auth.signInWithIdToken({
+    const { data, error } = await createAuthClient().auth.signInWithIdToken({
       provider: 'google',
       token: id_token,
     })

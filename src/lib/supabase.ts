@@ -19,3 +19,16 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     persistSession: false
   }
 });
+
+// Sign-in, sign-up and Google sign-in store the user's session on the client
+// they run on. If they ran on the shared admin client above, every later
+// database call from this server would run as that user instead of the
+// service role. So each of those calls gets its own throwaway client.
+export function createAuthClient() {
+  return createClient(supabaseUrl!, supabaseKey!, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
+}
