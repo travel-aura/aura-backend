@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import multer from 'multer'
 import { supabase, createAuthClient } from './lib/supabase'
 import { authenticateSupabase } from './middleware/auth'
+import { decideVerified } from './lib/verification'
 
 dotenv.config()
 
@@ -197,6 +198,28 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       return res.status(400).json({ error: 'No images provided' })
     }
 
+    // 0. Decide the verified badge on the server, not from the client's flag
+    const photoLat = Number.isFinite(Number(metadata.lat)) && metadata.lat !== null && metadata.lat !== undefined ? Number(metadata.lat) : null
+    const photoLng = Number.isFinite(Number(metadata.lng)) && metadata.lng !== null && metadata.lng !== undefined ? Number(metadata.lng) : null
+    let existingSpot: { latitude: number; longitude: number } | null = null
+    if (metadata.place_id) {
+      const { data: spotRows } = await supabase.rpc('get_place_by_id', { p_place_id: metadata.place_id })
+      if (!spotRows || spotRows.length === 0) {
+        return res.status(400).json({ error: 'Spot not found' })
+      }
+      existingSpot = { latitude: spotRows[0].latitude, longitude: spotRows[0].longitude }
+    }
+    const verification = decideVerified({
+      claimedVerified: !!metadata.is_verified,
+      lat: photoLat,
+      lng: photoLng,
+      takenAt: metadata.taken_at || null,
+      spot: existingSpot,
+    })
+    if (metadata.is_verified && !verification.verified) {
+      console.warn(`Upload by ${userId} not verified: ${verification.reason}`)
+    }
+
     // 1. Upload ALL files
     const uploadPromises = files.map(async (file) => {
       const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(7)}.webp`
@@ -298,7 +321,7 @@ app.post('/api/auras/upload', authenticateSupabase, upload.array('images', 5), a
       p_altitude:      Number(metadata.altitude) || 0,
       p_lng:           Number(metadata.lng) || 0,
       p_lat:           Number(metadata.lat) || 0,
-      p_is_verified:   !!metadata.is_verified,
+      p_is_verified:   verification.verified,
       p_description:   String(metadata.description || ''),
       p_parent_id:     metadata.parent_id || null,
       p_tags:          Array.isArray(metadata.tags) ? metadata.tags : null,
