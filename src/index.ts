@@ -111,6 +111,32 @@ app.post('/auth/login', async (req, res) => {
   }
 })
 
+// Swap a refresh token for a new session, so users stay logged in after the
+// short-lived access token expires (about an hour).
+app.post('/auth/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body || {}
+    if (!refresh_token || typeof refresh_token !== 'string') {
+      return res.status(400).json({ error: 'refresh_token required' })
+    }
+
+    const { data, error } = await createAuthClient().auth.refreshSession({ refresh_token })
+
+    if (error || !data.session) {
+      return res.status(401).json({ error: 'Session expired, please log in again' })
+    }
+
+    return res.json({
+      ok: true,
+      user: data.user,
+      session: data.session,
+    })
+  } catch (err: any) {
+    console.error('Refresh error:', err)
+    return res.status(500).json({ error: 'Could not refresh session' })
+  }
+})
+
 app.post('/auth/logout', async (req, res) => {
   try {
     const authHeader = req.headers.authorization
