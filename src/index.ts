@@ -879,6 +879,46 @@ app.post('/api/saves', authenticateSupabase, async (req: any, res) => {
   }
 })
 
+// Save several posts at once (a whole city guide). One notification per owner, not per post.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MAX_BULK_SAVES = 50
+app.post('/api/saves/bulk', authenticateSupabase, async (req: any, res) => {
+  try {
+    const raw = req.body?.aura_ids
+    if (!Array.isArray(raw) || raw.length === 0) return res.status(400).json({ error: 'aura_ids required' })
+    const ids = [...new Set(raw.filter((id: unknown) => typeof id === 'string' && UUID_RE.test(id)))] as string[]
+    if (ids.length === 0) return res.status(400).json({ error: 'aura_ids required' })
+    if (ids.length > MAX_BULK_SAVES) return res.status(400).json({ error: `At most ${MAX_BULK_SAVES} posts at once` })
+
+    // Only posts that exist
+    const { data: auras, error: findError } = await supabase.from('auras').select('id, user_id').in('id', ids)
+    if (findError) return serverError(res, findError)
+    const found = auras || []
+
+    const results = await Promise.all(
+      found.map((a: any) => supabase.rpc('save_aura', { p_user_id: req.user.id, p_aura_id: a.id }))
+    )
+    const failed = results.find((r) => r.error)
+    if (failed?.error) return serverError(res, failed.error)
+
+    const owners = new Map<string, string>()
+    for (const a of found as any[]) {
+      if (a.user_id !== req.user.id && !owners.has(a.user_id)) owners.set(a.user_id, a.id)
+    }
+    for (const [ownerId, auraId] of owners) {
+      await supabase.rpc('create_notification', {
+        p_recipient_id: ownerId,
+        p_actor_id: req.user.id,
+        p_type: 'save',
+        p_aura_id: auraId
+      })
+    }
+    return res.json({ ok: true, saved: found.length })
+  } catch (err: any) {
+    return serverError(res, err)
+  }
+})
+
 app.delete('/api/saves/:aura_id', authenticateSupabase, async (req: any, res) => {
   try {
     const { error } = await supabase.rpc('unsave_aura', {
