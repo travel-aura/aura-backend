@@ -1,3 +1,4 @@
+-- Superseded: the post-list function here is redefined in sql/migrations/2026-11-26_profile_atlas.sql
 -- p_user_id doubles as the viewer since these are the user's own posts
 DROP FUNCTION IF EXISTS get_user_auras(uuid);
 CREATE OR REPLACE FUNCTION get_user_auras(p_user_id uuid)

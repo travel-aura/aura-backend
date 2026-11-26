@@ -1,3 +1,4 @@
+-- Superseded: the post-list function here is redefined in sql/migrations/2026-11-26_profile_atlas.sql
 -- Public profile: user info + follow counts + is_following
 CREATE OR REPLACE FUNCTION get_user_public_profile(
   p_profile_user_id uuid,
