@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS follows (
   PRIMARY KEY (follower_id, following_id)
 );
 
-ALTER TABLE follows DISABLE ROW LEVEL SECURITY;
+-- RLS stays enabled on follows (see security_lock_down_public_api.sql); the backend uses the service role.
 
 CREATE INDEX IF NOT EXISTS idx_follows_follower  ON follows(follower_id);
 CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS places (
   created_at     timestamptz DEFAULT now()
 );
 
-ALTER TABLE places DISABLE ROW LEVEL SECURITY;
+-- RLS stays enabled (see security_lock_down_public_api.sql); the backend uses the service role.
 
 CREATE INDEX IF NOT EXISTS idx_places_location ON places USING GIST(location);
 CREATE INDEX IF NOT EXISTS idx_places_venue_id ON places(venue_id) WHERE venue_id IS NOT NULL;

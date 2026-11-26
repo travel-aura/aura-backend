@@ -69,3 +69,10 @@ export function decideVerified(input: VerificationInput): VerificationResult {
 
   return { verified: true, reason: null }
 }
+
+// "Hide exact location": two decimal places is about 1.1 km north-south
+// (less east-west away from the equator), enough to hide a home but still
+// show the neighbourhood.
+export function roundToArea(value: number): number {
+  return Math.round(value * 100) / 100
+}

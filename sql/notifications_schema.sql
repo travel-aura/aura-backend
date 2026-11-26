@@ -7,6 +7,6 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at   timestamptz DEFAULT now()
 );
 
-ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;
+-- RLS stays enabled on notifications (see security_lock_down_public_api.sql); the backend uses the service role.
 
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, created_at DESC);

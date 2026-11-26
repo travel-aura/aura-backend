@@ -11,4 +11,4 @@ CREATE TABLE IF NOT EXISTS saves (
   PRIMARY KEY (user_id, aura_id)
 );
 
-ALTER TABLE saves DISABLE ROW LEVEL SECURITY;
+-- RLS stays enabled on saves (see security_lock_down_public_api.sql); the backend uses the service role.

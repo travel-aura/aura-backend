@@ -4,6 +4,6 @@ CREATE TABLE IF NOT EXISTS user_cities (
   PRIMARY KEY (user_id, city_name)
 );
 
-ALTER TABLE user_cities DISABLE ROW LEVEL SECURITY;
+-- RLS stays enabled (see security_lock_down_public_api.sql); the backend uses the service role.
 
 CREATE INDEX IF NOT EXISTS idx_user_cities_user ON user_cities(user_id);

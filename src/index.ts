@@ -3,7 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { supabase, createAuthClient } from './lib/supabase'
 import { authenticateSupabase } from './middleware/auth'
-import { decideVerified } from './lib/verification'
+import { decideVerified, roundToArea } from './lib/verification'
 import { upload, detectImageType, uploadErrorHandler, validatePostText, MAX_POST_IMAGES, authLimiter, uploadLimiter, apiLimiter } from './lib/limits'
 
 dotenv.config()
@@ -259,6 +259,14 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
       console.warn(`Upload by ${userId} not verified: ${verification.reason}`)
     }
 
+    // "Hide exact location": verification above used the exact GPS; from here on
+    // only a rounded position (~1 km) is used and stored. Not available when
+    // adding a shot to an existing spot, which is public by definition.
+    const hideExactLocation = metadata.hide_exact_location === true && !metadata.place_id
+    const hasCoords = photoLat !== null && photoLng !== null && !(photoLat === 0 && photoLng === 0)
+    const publicLat = hasCoords ? (hideExactLocation ? roundToArea(photoLat as number) : photoLat) : null
+    const publicLng = hasCoords ? (hideExactLocation ? roundToArea(photoLng as number) : photoLng) : null
+
     // 1. Upload ALL files
     const uploadPromises = files.map(async (file) => {
       const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(7)}.webp`
@@ -278,8 +286,9 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
 
     const publicUrls = await Promise.all(uploadPromises)
 
-    // 2. Reverse geocode city name from lat/lng
+    // 2. Reverse geocode city and country from lat/lng
     let cityName: string | null = null
+    let countryCode: string | null = null
     const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN
     if (metadata.lat && metadata.lng && mapboxToken) {
       try {
@@ -294,21 +303,36 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
         const areas: any[] = [feature, ...(feature?.context ?? [])].filter(Boolean)
         const byType = (type: string) => areas.find((c: any) => c.id?.startsWith(`${type}.`))
         cityName = (byType('place') ?? byType('locality') ?? byType('district'))?.text ?? null
+        const country = byType('country')
+        countryCode = typeof country?.short_code === 'string' ? country.short_code.slice(0, 2).toLowerCase() : null
       } catch (e) {
         console.error('Mapbox geocoding failed:', e)
       }
     }
 
-    if (cityName) {
-      await supabase.rpc('upsert_user_city', { p_user_id: userId, p_city_name: cityName })
-    }
 
     // 3. Find or create Place
+    // New spots are named after the venue, or else the post's title (never "Unnamed Spot").
+    const spotName =
+      (typeof metadata.place_name === 'string' && metadata.place_name.trim()) ||
+      (typeof metadata.title === 'string' && metadata.title.trim()) ||
+      null
     let placeId: string | null = metadata.place_id || null
     let isNewPlace = false
 
     if (!placeId) {
-      if (metadata.venue_id) {
+      if (hideExactLocation && hasCoords) {
+        // Hidden location: its own approximate spot, never shared or matched.
+        const { data: newId } = await supabase.rpc('create_place', {
+          p_name: typeof metadata.title === 'string' && metadata.title.trim() ? metadata.title.trim() : null,
+          p_lat: publicLat,
+          p_lng: publicLng,
+          p_venue_id: null,
+          p_is_approximate: true
+        })
+        placeId = newId
+        isNewPlace = true
+      } else if (metadata.venue_id) {
         // Named venue: match by venue_id or create
         const { data: existingId } = await supabase.rpc('find_place_by_venue_id', {
           p_venue_id: metadata.venue_id
@@ -318,19 +342,19 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
           placeId = existingId
         } else {
           const { data: newId } = await supabase.rpc('create_place', {
-            p_name: metadata.place_name || 'Unnamed Venue',
-            p_lat: Number(metadata.lat) || 0,
-            p_lng: Number(metadata.lng) || 0,
+            p_name: spotName,
+            p_lat: photoLat ?? 0,
+            p_lng: photoLng ?? 0,
             p_venue_id: metadata.venue_id
           })
           placeId = newId
           isNewPlace = true
         }
-      } else if (metadata.lat && metadata.lng) {
+      } else if (hasCoords) {
         // GPS spot: check proximity
         const { data: nearby } = await supabase.rpc('check_nearby_place', {
-          p_lat: Number(metadata.lat),
-          p_lng: Number(metadata.lng),
+          p_lat: photoLat,
+          p_lng: photoLng,
           p_radius_meters: 20
         })
 
@@ -338,9 +362,9 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
           placeId = nearby[0].id
         } else {
           const { data: newId } = await supabase.rpc('create_place', {
-            p_name: metadata.place_name || null,
-            p_lat: Number(metadata.lat),
-            p_lng: Number(metadata.lng),
+            p_name: spotName,
+            p_lat: photoLat,
+            p_lng: photoLng,
             p_venue_id: null
           })
           placeId = newId
@@ -354,10 +378,11 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
       p_user_id:       userId,
       p_title:         String(metadata.title || 'Untitled'),
       p_image_urls:    publicUrls,
-      p_heading:       Number(metadata.heading) || 0,
-      p_altitude:      Number(metadata.altitude) || 0,
-      p_lng:           Number(metadata.lng) || 0,
-      p_lat:           Number(metadata.lat) || 0,
+      // Hidden posts store only the rounded position, and no direction or altitude.
+      p_heading:       hideExactLocation ? 0 : Number(metadata.heading) || 0,
+      p_altitude:      hideExactLocation ? 0 : Number(metadata.altitude) || 0,
+      p_lng:           publicLng ?? 0,
+      p_lat:           publicLat ?? 0,
       p_is_verified:   verification.verified,
       p_description:   String(metadata.description || ''),
       p_parent_id:     metadata.parent_id || null,
@@ -368,7 +393,7 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
       p_tz_offset:     metadata.tz_offset || null,
       p_gps_accuracy:  metadata.gps_accuracy || null,
       p_gps_timestamp: metadata.gps_timestamp || null,
-      p_place_name:    metadata.place_name || null,
+      p_place_name:    hideExactLocation ? null : metadata.place_name || null,
       p_place_id:      placeId,
     };
 
@@ -378,6 +403,11 @@ app.post('/api/auras/upload', uploadLimiter, authenticateSupabase, upload.array(
       return serverError(res, dbError)
     }
 
+    // 5. Country, for the Cities page (separate update so insert_aura keeps its signature)
+    if (countryCode && newPostId) {
+      const { error: countryError } = await supabase.from('auras').update({ country_code: countryCode }).eq('id', newPostId)
+      if (countryError) console.error('Saving country failed:', countryError)
+    }
 
     // 6. If this is a perspective, notify the parent post owner
     if (metadata.parent_id) {
@@ -551,6 +581,7 @@ app.get('/api/auras/me/stats', authenticateSupabase, async (req: any, res) => {
       friend_count:   Number(row?.friend_count   ?? 0),
       top_tags:       (row?.top_tags ?? []) as string[],
       cities:         (row?.cities   ?? []) as string[],
+      city_list:      (row?.city_list ?? []) as { city: string; country_code: string | null; post_count: number }[],
     }
 
     return res.json({ ok: true, stats })
@@ -782,6 +813,7 @@ app.get('/api/users/:id', authenticateSupabase, async (req: any, res) => {
       friend_count:   Number(statsRow?.friend_count   ?? 0),
       top_tags:       (statsRow?.top_tags ?? []) as string[],
       cities:         (statsRow?.cities   ?? []) as string[],
+      city_list:      (statsRow?.city_list ?? []) as { city: string; country_code: string | null; post_count: number }[],
     }
 
     const userPosts = postsResult.data || []
@@ -1244,6 +1276,43 @@ app.post('/api/profile/avatar', uploadLimiter, authenticateSupabase, upload.sing
     return res.json({ ok: true, avatar_url: publicUrl })
   } catch (err: any) {
     console.error('Avatar upload error:', err)
+    return serverError(res, err)
+  }
+})
+
+// ========== ACCOUNT ==========
+// Permanently deletes the signed-in user's account: posts, photos, avatar,
+// follows, likes, saves, notifications, profile, and the login itself.
+// Requires { "confirm": "DELETE" } in the body so it can't be triggered by accident.
+app.delete('/api/account', authenticateSupabase, async (req: any, res) => {
+  try {
+    const userId = req.user.id
+    if (req.body?.confirm !== 'DELETE') {
+      return res.status(400).json({ error: 'Confirmation required' })
+    }
+
+    // 1. Database rows (one transaction)
+    const { error: dataError } = await supabase.rpc('delete_user_data', { p_user_id: userId })
+    if (dataError) return serverError(res, dataError)
+
+    // 2. Files: everything under the user's folder in both buckets
+    for (const bucket of ['aura-images', 'profile-avatars']) {
+      for (;;) {
+        const { data: files, error: listError } = await supabase.storage.from(bucket).list(userId, { limit: 1000 })
+        if (listError) { console.error(`Listing ${bucket} failed:`, listError); break }
+        if (!files || files.length === 0) break
+        const { error: removeError } = await supabase.storage.from(bucket).remove(files.map((f) => `${userId}/${f.name}`))
+        if (removeError) { console.error(`Removing ${bucket} files failed:`, removeError); break }
+        if (files.length < 1000) break
+      }
+    }
+
+    // 3. The login itself
+    const { error: authError } = await supabase.auth.admin.deleteUser(userId)
+    if (authError) return serverError(res, authError)
+
+    return res.json({ ok: true })
+  } catch (err: any) {
     return serverError(res, err)
   }
 })
